@@ -9,14 +9,25 @@ in a job posting, organized by priority level.
 import json
 import spacy
 import argparse
+import os
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Tuple, Set
+from collections import defaultdict
 
 # Constants
 JOBS_FILE = "analyzed_jobs.json"
 SENTENCES_FILE = "processed_cover_letters.json"
+REPORTS_DIR = "job-reports"
 MIN_RATING_THRESHOLD = 6.0  # Minimum rating to consider a sentence
+
+# Configurable scoring weights
+SCORING_WEIGHTS = {
+    "high_priority_match": 0.5,    # Weight for matching a high priority tag
+    "medium_priority_match": 0.3,  # Weight for matching a medium priority tag
+    "low_priority_match": 0.2,     # Weight for matching a low priority tag
+    "multi_tag_bonus": 0.1,        # Additional bonus for each tag after the first
+}
 
 def load_jobs(jobs_file: str) -> Dict:
     """Load job data from JSON file."""
@@ -96,62 +107,172 @@ def get_all_rated_sentences(sentences_data: Dict) -> List[Dict]:
 
 def find_matching_sentences(job: Dict, all_sentences: List[Dict]) -> Dict:
     """
-    Find sentences that match job tags, organized by priority level.
+    Find sentences that match job tags, organized by sentence rather than tag.
     
     Args:
         job: Job data from analyzed_jobs.json
         all_sentences: List of all rated sentences
         
     Returns:
-        Dict with matched sentences by priority level
+        Dict with matched sentences and tag information
     """
-    matches = {
-        "high_priority": [],
-        "medium_priority": [],
-        "low_priority": []
-    }
-    
     # Get tags by priority level
     high_priority_tags = job.get("tags", {}).get("high_priority", [])
     medium_priority_tags = job.get("tags", {}).get("medium_priority", [])
     low_priority_tags = job.get("tags", {}).get("low_priority", [])
     
-    # Find matches for each priority level
+    # Track sentences that match tags
+    sentence_matches = defaultdict(dict)  # Maps sentence text to match info
+    
+    # Find all tag matches for each sentence
+    for sentence in all_sentences:
+        sentence_text = sentence.get("text", "")
+        sentence_tags = set(sentence.get("tags", []))
+        
+        # Initialize match info
+        if sentence_text not in sentence_matches:
+            sentence_matches[sentence_text] = {
+                "text": sentence_text,
+                "rating": sentence.get("rating", 0),
+                "source": sentence.get("source", ""),
+                "matched_tags": {
+                    "high": [],
+                    "medium": [],
+                    "low": []
+                },
+                "all_tags": sentence.get("tags", [])
+            }
+        
+        # Check which job tags this sentence matches
+        for tag in high_priority_tags:
+            if tag in sentence_tags:
+                sentence_matches[sentence_text]["matched_tags"]["high"].append(tag)
+        
+        for tag in medium_priority_tags:
+            if tag in sentence_tags:
+                sentence_matches[sentence_text]["matched_tags"]["medium"].append(tag)
+        
+        for tag in low_priority_tags:
+            if tag in sentence_tags:
+                sentence_matches[sentence_text]["matched_tags"]["low"].append(tag)
+    
+    # Calculate scores for each sentence
+    scored_sentences = []
+    
+    for text, match_info in sentence_matches.items():
+        # Skip sentences that don't match any tags
+        if not any(match_info["matched_tags"].values()):
+            continue
+            
+        # Count matches by priority
+        high_match_count = len(match_info["matched_tags"]["high"])
+        medium_match_count = len(match_info["matched_tags"]["medium"])
+        low_match_count = len(match_info["matched_tags"]["low"])
+        total_match_count = high_match_count + medium_match_count + low_match_count
+        
+        # Skip sentences that don't match any tags
+        if total_match_count == 0:
+            continue
+        
+        # Calculate score using configurable weights
+        base_score = match_info["rating"]
+        priority_bonus = (
+            high_match_count * SCORING_WEIGHTS["high_priority_match"] +
+            medium_match_count * SCORING_WEIGHTS["medium_priority_match"] +
+            low_match_count * SCORING_WEIGHTS["low_priority_match"]
+        )
+        
+        # Add bonus for matching multiple tags (only for tags after the first)
+        multi_tag_bonus = 0
+        if total_match_count > 1:
+            multi_tag_bonus = (total_match_count - 1) * SCORING_WEIGHTS["multi_tag_bonus"]
+        
+        final_score = base_score + priority_bonus + multi_tag_bonus
+        
+        # Create scored sentence entry
+        scored_sentence = {
+            "text": text,
+            "rating": match_info["rating"],
+            "score": final_score,
+            "matched_tags": match_info["matched_tags"],
+            "all_tags": match_info["all_tags"],
+            "match_count": total_match_count,
+            "source": match_info["source"]
+        }
+        
+        scored_sentences.append(scored_sentence)
+    
+    # Sort sentences by score (highest first)
+    scored_sentences.sort(key=lambda x: x["score"], reverse=True)
+    
+    # Organize matches for traditional tag-based display (for backward compatibility)
+    tag_based_matches = {
+        "high_priority": [],
+        "medium_priority": [],
+        "low_priority": []
+    }
+    
+    # Process high priority tags
     for tag in high_priority_tags:
         tag_matches = []
-        for sentence in all_sentences:
-            if tag in sentence.get("tags", []):
-                tag_matches.append(sentence)
+        for sentence in scored_sentences:
+            if tag in sentence["matched_tags"]["high"]:
+                tag_matches.append({
+                    "text": sentence["text"],
+                    "rating": sentence["rating"],
+                    "adjusted_score": sentence["score"],
+                    "tags": sentence["all_tags"],
+                    "match_count": sentence["match_count"],
+                    "source": sentence["source"]
+                })
         
-        # Only keep top 3 matches for each tag
-        matches["high_priority"].append({
+        tag_based_matches["high_priority"].append({
             "tag": tag,
-            "sentences": tag_matches[:3]
+            "sentences": tag_matches[:3]  # Only keep top 3 matches for each tag
         })
     
+    # Process medium priority tags
     for tag in medium_priority_tags:
         tag_matches = []
-        for sentence in all_sentences:
-            if tag in sentence.get("tags", []):
-                tag_matches.append(sentence)
+        for sentence in scored_sentences:
+            if tag in sentence["matched_tags"]["medium"]:
+                tag_matches.append({
+                    "text": sentence["text"],
+                    "rating": sentence["rating"],
+                    "adjusted_score": sentence["score"],
+                    "tags": sentence["all_tags"],
+                    "match_count": sentence["match_count"],
+                    "source": sentence["source"]
+                })
         
-        matches["medium_priority"].append({
+        tag_based_matches["medium_priority"].append({
             "tag": tag,
-            "sentences": tag_matches[:3]
+            "sentences": tag_matches[:3]  # Only keep top 3 matches for each tag
         })
     
+    # Process low priority tags
     for tag in low_priority_tags:
         tag_matches = []
-        for sentence in all_sentences:
-            if tag in sentence.get("tags", []):
-                tag_matches.append(sentence)
+        for sentence in scored_sentences:
+            if tag in sentence["matched_tags"]["low"]:
+                tag_matches.append({
+                    "text": sentence["text"],
+                    "rating": sentence["rating"],
+                    "adjusted_score": sentence["score"],
+                    "tags": sentence["all_tags"],
+                    "match_count": sentence["match_count"],
+                    "source": sentence["source"]
+                })
         
-        matches["low_priority"].append({
+        tag_based_matches["low_priority"].append({
             "tag": tag,
-            "sentences": tag_matches[:3]
+            "sentences": tag_matches[:3]  # Only keep top 3 matches for each tag
         })
     
-    return matches
+    return {
+        "sentence_based": scored_sentences,
+        "tag_based": tag_based_matches
+    }
 
 def display_job_info(job: Dict) -> None:
     """Display basic job information."""
@@ -174,50 +295,123 @@ def display_matches(job: Dict, matches: Dict) -> None:
     
     Args:
         job: Job data
-        matches: Dict with matched sentences by priority
+        matches: Dict with matched sentences
     """
     display_job_info(job)
     
-    # Display high priority matches
-    print("\nHIGH PRIORITY MATCHES:")
-    for tag_match in matches["high_priority"]:
-        tag = tag_match["tag"]
-        sentences = tag_match["sentences"]
-        
-        if sentences:
-            print(f"\n  TAG: {tag}")
-            for i, sentence in enumerate(sentences, 1):
-                print(f"    {i}. \"{sentence['text']}\" (Rating: {sentence['rating']})")
-        else:
-            print(f"\n  TAG: {tag} - No matching sentences found")
+    # Display sentences sorted by score
+    print("\nMATCHING SENTENCES (sorted by score):")
     
-    # Display medium priority matches
-    print("\nMEDIUM PRIORITY MATCHES:")
-    for tag_match in matches["medium_priority"]:
-        tag = tag_match["tag"]
-        sentences = tag_match["sentences"]
+    for i, sentence in enumerate(matches["sentence_based"], 1):
+        # Format matched tags by priority
+        high_tags = ", ".join(sentence["matched_tags"]["high"])
+        medium_tags = ", ".join(sentence["matched_tags"]["medium"])
+        low_tags = ", ".join(sentence["matched_tags"]["low"])
         
-        if sentences:
-            print(f"\n  TAG: {tag}")
-            for i, sentence in enumerate(sentences, 1):
-                print(f"    {i}. \"{sentence['text']}\" (Rating: {sentence['rating']})")
-        else:
-            print(f"\n  TAG: {tag} - No matching sentences found")
-    
-    # Display low priority matches
-    print("\nLOW PRIORITY MATCHES:")
-    for tag_match in matches["low_priority"]:
-        tag = tag_match["tag"]
-        sentences = tag_match["sentences"]
+        tag_info = []
+        if high_tags:
+            tag_info.append(f"High: {high_tags}")
+        if medium_tags:
+            tag_info.append(f"Medium: {medium_tags}")
+        if low_tags:
+            tag_info.append(f"Low: {low_tags}")
         
-        if sentences:
-            print(f"\n  TAG: {tag}")
-            for i, sentence in enumerate(sentences, 1):
-                print(f"    {i}. \"{sentence['text']}\" (Rating: {sentence['rating']})")
-        else:
-            print(f"\n  TAG: {tag} - No matching sentences found")
+        tags_str = "; ".join(tag_info)
+        
+        print(f"\n{i}. \"{sentence['text']}\"")
+        print(f"   Score: {sentence['score']:.1f} (Rating: {sentence['rating']}, Matches: {sentence['match_count']})")
+        print(f"   Tags: {tags_str}")
     
     print("\n" + "="*80)
+
+def generate_markdown_report(job: Dict, matches: Dict) -> str:
+    """
+    Generate a markdown report for the job matches.
+    
+    Args:
+        job: Job data
+        matches: Dict with matched sentences
+        
+    Returns:
+        str: Markdown content
+    """
+    md = f"# Job Match Report: {job['job_title']} at {job['org_name']}\n\n"
+    md += f"**Job ID:** {job['id']}  \n"
+    md += f"**URL:** {job['url']}  \n"
+    md += f"**Date Scraped:** {job['date_scraped']}  \n\n"
+    
+    md += f"## Summary\n\n{job['summary']}\n\n"
+    
+    md += "## Priority Tags\n\n"
+    md += "### High Priority\n\n"
+    for tag in job.get("tags", {}).get("high_priority", []):
+        md += f"- {tag}\n"
+    
+    md += "\n### Medium Priority\n\n"
+    for tag in job.get("tags", {}).get("medium_priority", []):
+        md += f"- {tag}\n"
+    
+    md += "\n### Low Priority\n\n"
+    for tag in job.get("tags", {}).get("low_priority", []):
+        md += f"- {tag}\n"
+    
+    # New sentence-centric format
+    md += "\n## Matching Sentences\n\n"
+    
+    for i, sentence in enumerate(matches["sentence_based"], 1):
+        md += f"{i}. \"{sentence['text']}\"\n\n"
+        md += f"   Score: {sentence['score']:.1f} (Rating: {sentence['rating']})\n"
+        
+        # List matched tags by priority
+        if sentence["matched_tags"]["high"]:
+            md += f"   High Priority Tags: {', '.join(sentence['matched_tags']['high'])}\n"
+        if sentence["matched_tags"]["medium"]:
+            md += f"   Medium Priority Tags: {', '.join(sentence['matched_tags']['medium'])}\n"
+        if sentence["matched_tags"]["low"]:
+            md += f"   Low Priority Tags: {', '.join(sentence['matched_tags']['low'])}\n"
+        
+        md += "\n"
+    
+    # Add information about scoring weights
+    md += "## Scoring Information\n\n"
+    md += "Sentences are scored using the following formula:\n\n"
+    md += "```\nScore = Base Rating + Priority Bonuses + Multi-Tag Bonus\n```\n\n"
+    md += "Where:\n"
+    md += f"- High Priority Match: +{SCORING_WEIGHTS['high_priority_match']} per tag\n"
+    md += f"- Medium Priority Match: +{SCORING_WEIGHTS['medium_priority_match']} per tag\n"
+    md += f"- Low Priority Match: +{SCORING_WEIGHTS['low_priority_match']} per tag\n"
+    md += f"- Multi-Tag Bonus: +{SCORING_WEIGHTS['multi_tag_bonus']} for each additional tag after the first\n"
+    
+    return md
+
+def save_markdown_report(job: Dict, matches: Dict) -> str:
+    """
+    Save a markdown report for the job matches.
+    
+    Args:
+        job: Job data
+        matches: Dict with matched sentences
+        
+    Returns:
+        str: Path to the saved report
+    """
+    # Create reports directory if it doesn't exist
+    os.makedirs(REPORTS_DIR, exist_ok=True)
+    
+    # Generate filename from org name and job title
+    org_name = job['org_name'].lower().replace(' ', '-')
+    job_title = job['job_title'].lower().replace(' ', '-')
+    filename = f"{org_name}-{job_title}-{job['id']}.md"
+    filepath = os.path.join(REPORTS_DIR, filename)
+    
+    # Generate markdown content
+    md_content = generate_markdown_report(job, matches)
+    
+    # Save to file
+    with open(filepath, 'w') as f:
+        f.write(md_content)
+    
+    return filepath
 
 def list_available_jobs(jobs_data: Dict) -> None:
     """List all available jobs with their sequential IDs."""
@@ -232,7 +426,25 @@ def main():
     parser = argparse.ArgumentParser(description="Match cover letter sentences to job requirements")
     parser.add_argument("--job-id", type=int, help="Sequential ID of the job to analyze")
     parser.add_argument("--list", action="store_true", help="List all available jobs")
+    parser.add_argument("--report", action="store_true", help="Generate a markdown report")
+    
+    # Add arguments for configurable scoring weights
+    parser.add_argument("--high-weight", type=float, help=f"Weight for high priority matches (default: {SCORING_WEIGHTS['high_priority_match']})")
+    parser.add_argument("--medium-weight", type=float, help=f"Weight for medium priority matches (default: {SCORING_WEIGHTS['medium_priority_match']})")
+    parser.add_argument("--low-weight", type=float, help=f"Weight for low priority matches (default: {SCORING_WEIGHTS['low_priority_match']})")
+    parser.add_argument("--multi-tag-bonus", type=float, help=f"Bonus for each additional tag match (default: {SCORING_WEIGHTS['multi_tag_bonus']})")
+    
     args = parser.parse_args()
+    
+    # Update scoring weights if provided
+    if args.high_weight is not None:
+        SCORING_WEIGHTS["high_priority_match"] = args.high_weight
+    if args.medium_weight is not None:
+        SCORING_WEIGHTS["medium_priority_match"] = args.medium_weight
+    if args.low_weight is not None:
+        SCORING_WEIGHTS["low_priority_match"] = args.low_weight
+    if args.multi_tag_bonus is not None:
+        SCORING_WEIGHTS["multi_tag_bonus"] = args.multi_tag_bonus
     
     # Load job data
     try:
@@ -280,10 +492,15 @@ def main():
     # Find matching sentences
     matches = find_matching_sentences(target_job, all_sentences)
     
-    # Display matches
-    display_matches(target_job, matches)
+    # Generate report if requested or display matches
+    if args.report:
+        report_path = save_markdown_report(target_job, matches)
+        print(f"\nReport generated: {report_path}")
+    else:
+        display_matches(target_job, matches)
     
     print(f"\nCompleted analysis for Job #{args.job_id}: {target_job['job_title']} at {target_job['org_name']}")
+    print(f"To generate a markdown report, run with --report flag")
 
 if __name__ == "__main__":
     main()
