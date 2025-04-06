@@ -5,6 +5,7 @@ import spacy
 import yaml
 import ollama
 from pathlib import Path
+from datetime import datetime
 
 def load_categories(yaml_file):
     """Load categories from a YAML file."""
@@ -118,6 +119,63 @@ def process_cover_letter(content):
     
     return processed_paragraphs, list(document_tags)
 
+def preserve_existing_sentence_ratings(existing_data, new_paragraphs):
+    """
+    Preserve existing ratings for sentences when updating the JSON file.
+    
+    Args:
+        existing_data: The existing data structure with ratings
+        new_paragraphs: The newly processed paragraphs
+        
+    Returns:
+        Updated paragraphs with preserved ratings
+    """
+    # Create a mapping of sentence text to its existing rating
+    sentence_ratings = {}
+    
+    # Extract all existing sentences and their ratings
+    for filename, file_data in existing_data.items():
+        # Skip non-file entries like metadata
+        if not isinstance(file_data, dict) or "content" not in file_data:
+            continue
+            
+        paragraphs = file_data["content"].get("paragraphs", [])
+        
+        for paragraph in paragraphs:
+            sentences = paragraph.get("sentences", [])
+            
+            for sentence in sentences:
+                text = sentence.get("text", "").strip()
+                
+                if not text:
+                    continue
+                    
+                # Store rating and other important fields
+                if "rating" in sentence:
+                    if text not in sentence_ratings or sentence_ratings[text].get("rating", 0) == 0:
+                        sentence_ratings[text] = {
+                            "rating": sentence["rating"],
+                            "last_rated": sentence.get("last_rated", ""),
+                            "batch_rating": sentence.get("batch_rating", False)
+                        }
+    
+    # Apply existing ratings to new paragraphs
+    for paragraph in new_paragraphs:
+        sentences = paragraph.get("sentences", [])
+        
+        for sentence in sentences:
+            text = sentence.get("text", "").strip()
+            
+            if text in sentence_ratings:
+                # Copy over the existing rating and related fields
+                sentence["rating"] = sentence_ratings[text]["rating"]
+                if sentence_ratings[text].get("last_rated"):
+                    sentence["last_rated"] = sentence_ratings[text]["last_rated"]
+                if sentence_ratings[text].get("batch_rating"):
+                    sentence["batch_rating"] = sentence_ratings[text]["batch_rating"]
+    
+    return new_paragraphs
+
 def process_cover_letters_batch(archive_dir, output_file):
     """Process all cover letters in the archive directory and save to a single JSON file."""
     archive_path = Path(archive_dir)
@@ -136,7 +194,10 @@ def process_cover_letters_batch(archive_dir, output_file):
     # Load existing data if output file exists
     if output_path.exists():
         with open(output_path, 'r') as f:
-            processed_data = json.load(f)
+            existing_data = json.load(f)
+            processed_data = existing_data
+    else:
+        existing_data = {}
     
     # Get all text files from archive
     text_files = list(archive_path.glob('*.txt'))
@@ -160,9 +221,13 @@ def process_cover_letters_batch(archive_dir, output_file):
         # Process paragraphs and get document tags
         processed_paragraphs, document_tags = process_cover_letter(content)
         
+        # Preserve existing ratings if this is an update to an existing file
+        if existing_data:
+            processed_paragraphs = preserve_existing_sentence_ratings(existing_data, processed_paragraphs)
+        
         # Create entry with new structure
         entry = {
-            "id": str(uuid.uuid4()),
+            "id": str(uuid.uuid4()) if source_file not in processed_data else processed_data[source_file].get("id", str(uuid.uuid4())),
             "source_file": source_file,
             "content": {
                 "paragraphs": processed_paragraphs,
@@ -179,6 +244,17 @@ def process_cover_letters_batch(archive_dir, output_file):
         processed_data[source_file] = entry
         new_files_processed += 1
     
+    # Preserve metadata fields from existing data
+    if "batch_ratings_done" in existing_data:
+        processed_data["batch_ratings_done"] = existing_data["batch_ratings_done"]
+    if "refinement_done" in existing_data:
+        processed_data["refinement_done"] = existing_data["refinement_done"]
+    if "filtered_sentences" in existing_data:
+        processed_data["filtered_sentences"] = existing_data["filtered_sentences"]
+    
+    # Update last processed date
+    processed_data["last_processed_date"] = datetime.now().isoformat()
+    
     # Save all data to the output file
     with open(output_path, 'w') as f:
         json.dump(processed_data, f, indent=4)
@@ -186,13 +262,20 @@ def process_cover_letters_batch(archive_dir, output_file):
     return new_files_processed
 
 if __name__ == "__main__":
+    import sys
+    
     archive_dir = "text-archive"
     output_file = "processed_cover_letters.json"
     
-    if not os.path.exists(archive_dir):
-        print(f"Error: Archive directory '{archive_dir}' not found.")
-        exit(1)
-    
-    new_files = process_cover_letters_batch(archive_dir, output_file)
-    print(f"Processing complete. {new_files} new or updated files processed.")
-    print(f"All processed cover letters saved to: {output_file}")
+    # Check for the "write" command
+    if len(sys.argv) > 1 and sys.argv[1] == "write":
+        if not os.path.exists(archive_dir):
+            print(f"Error: Archive directory '{archive_dir}' not found.")
+            exit(1)
+        
+        new_files = process_cover_letters_batch(archive_dir, output_file)
+        print(f"Processing complete. {new_files} new or updated files processed.")
+        print(f"All processed cover letters saved to: {output_file}")
+    else:
+        print("Usage: python deja_write.py write")
+        print("This will process all text files in the text-archive directory and update the JSON file.")
