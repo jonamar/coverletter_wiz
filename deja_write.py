@@ -1,3 +1,30 @@
+"""
+DejaWrite - Cover Letter Processing Tool
+
+This script processes cover letters from text files and extracts structured data including:
+- Paragraphs and sentences
+- Automatically generated tags using a local LLM (deepseek-r1:8b via Ollama)
+- Sentence ratings (preserved across processing runs)
+
+The script organizes cover letter content for later use in the cover letter generation
+pipeline, working alongside job_analyzer.py, sentence_rater.py, and cover_letter_matcher.py.
+
+Requirements:
+- Python 3.6+
+- spaCy with en_core_web_sm model
+- Ollama with deepseek-r1:8b model installed
+- categories.yaml file with tag categories
+
+CLI Usage:
+    python deja_write.py write
+        Process all text files in the text-archive directory and update the JSON file.
+        New files will be added, and existing files will be updated while preserving ratings.
+
+Output:
+    The script generates a processed_cover_letters.json file containing structured data
+    from all cover letters with tags and ratings.
+"""
+
 import os
 import json
 import uuid
