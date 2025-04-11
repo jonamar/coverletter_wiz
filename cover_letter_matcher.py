@@ -296,11 +296,7 @@ def display_matches(job: Dict, matches: Dict) -> None:
         
         print(f"{i}. Score: {score:.2f} (Rating: {rating}/10)")
         
-        # Print if this is a sentence group
-        if sentence.get("is_sentence_group", False):
-            print("   [SENTENCE GROUP]")
-        
-        print(f"   {sentence.get('text', '')}")
+        print(f"{sentence.get('text', '')}")
         
         # Print matched tags by priority
         matched_tags = sentence.get("matched_tags", {})
@@ -431,8 +427,7 @@ def generate_cover_letter(job: Dict, matches: Dict, print_prompt_only: bool = Fa
     # Prepare the sentence list for the prompt
     sentence_list = ""
     for i, sent in enumerate(top_sentences, 1):
-        group_indicator = " (GROUP)" if sent.get("is_group", False) else ""
-        sentence_list += f"{i}. (Score: {sent.get('score', 0):.2f}){group_indicator} {sent.get('text', '')}\n\n"
+        sentence_list += f"{i}. (Score: {sent.get('score', 0):.2f}) {sent.get('text', '')}\n\n"
     
     # Create the improved prompt with emphasis on specific achievements
     prompt = f"""You are an expert cover letter writer. I need you to create a professional cover letter based on the following job information and my best sentences from previous cover letters that match this job's requirements:
@@ -475,7 +470,7 @@ Write the complete cover letter from scratch, but incorporate my best sentences 
     
     return cleaned_text
 
-def generate_markdown_report(job: Dict, matches: Dict, include_cover_letter: bool = False, print_prompt_only: bool = False, model: str = DEFAULT_LLM_MODEL) -> str:
+def generate_markdown_report(job: Dict, matches: Dict, include_cover_letter: bool = False, print_prompt_only: bool = False, model: str = DEFAULT_LLM_MODEL, keywords: List[str] = None) -> str:
     """
     Generate a markdown report for the job matches.
     
@@ -485,6 +480,7 @@ def generate_markdown_report(job: Dict, matches: Dict, include_cover_letter: boo
         include_cover_letter: Whether to include a cover letter draft
         print_prompt_only: If True, print the prompt instead of generating a cover letter
         model: The LLM model to use for generation
+        keywords: Optional list of keywords to search for
         
     Returns:
         str: Markdown content
@@ -522,9 +518,90 @@ def generate_markdown_report(job: Dict, matches: Dict, include_cover_letter: boo
 ### Low Priority
 {', '.join(low_priority) if low_priority else 'None'}
 
-## Matching Content ({total_matches} matches)
-
 """
+
+    # Add top sentences by category section
+    top_sentences = get_top_sentences_by_category(matches)
+    md_content += "## Top Sentences by Category\n\n"
+    
+    # High priority sentences
+    md_content += "### High Priority\n\n"
+    if top_sentences["high"]:
+        for i, sentence in enumerate(top_sentences["high"], 1):  # Show top 3
+            score = sentence.get("score", 0)
+            rating = sentence.get("rating", 0)
+            md_content += f"**{i}. Score: {score:.2f} (Rating: {rating}/10)**\n\n"
+            md_content += f"{sentence.get('text', '')}\n\n"
+            # Show matched tags
+            matched_tags = sentence.get("matched_tags", {}).get("high", [])
+            if matched_tags:
+                md_content += f"*Matched tags: {', '.join(matched_tags)}*\n\n"
+            md_content += "---\n\n"
+    else:
+        md_content += "*No high priority matches found*\n\n"
+    
+    # Medium priority sentences
+    md_content += "### Medium Priority\n\n"
+    if top_sentences["medium"]:
+        for i, sentence in enumerate(top_sentences["medium"], 1):  # Show top 3
+            score = sentence.get("score", 0)
+            rating = sentence.get("rating", 0)
+            md_content += f"**{i}. Score: {score:.2f} (Rating: {rating}/10)**\n\n"
+            md_content += f"{sentence.get('text', '')}\n\n"
+            # Show matched tags
+            matched_tags = sentence.get("matched_tags", {}).get("medium", [])
+            if matched_tags:
+                md_content += f"*Matched tags: {', '.join(matched_tags)}*\n\n"
+            md_content += "---\n\n"
+    else:
+        md_content += "*No medium priority matches found*\n\n"
+    
+    # Low priority sentences
+    md_content += "### Low Priority\n\n"
+    if top_sentences["low"]:
+        for i, sentence in enumerate(top_sentences["low"], 1):  # Show top 3
+            score = sentence.get("score", 0)
+            rating = sentence.get("rating", 0)
+            md_content += f"**{i}. Score: {score:.2f} (Rating: {rating}/10)**\n\n"
+            md_content += f"{sentence.get('text', '')}\n\n"
+            # Show matched tags
+            matched_tags = sentence.get("matched_tags", {}).get("low", [])
+            if matched_tags:
+                md_content += f"*Matched tags: {', '.join(matched_tags)}*\n\n"
+            md_content += "---\n\n"
+    else:
+        md_content += "*No low priority matches found*\n\n"
+    
+    # Add keyword search results if keywords provided
+    if keywords:
+        keyword_matches = search_sentences_by_keywords(matches, keywords)
+        md_content += f"## Keyword Search Results: {', '.join(keywords)}\n\n"
+        
+        if keyword_matches:
+            for i, sentence in enumerate(keyword_matches[:10], 1):  # Show top 10
+                score = sentence.get("score", 0)
+                rating = sentence.get("rating", 0)
+                md_content += f"**{i}. Score: {score:.2f} (Rating: {rating}/10)**\n\n"
+                md_content += f"{sentence.get('text', '')}\n\n"
+                
+                # Show matched tags by priority
+                matched_tags = sentence.get("matched_tags", {})
+                if matched_tags.get("high"):
+                    md_content += f"*High Priority Matches: {', '.join(matched_tags['high'])}*\n\n"
+                if matched_tags.get("medium"):
+                    md_content += f"*Medium Priority Matches: {', '.join(matched_tags['medium'])}*\n\n"
+                if matched_tags.get("low"):
+                    md_content += f"*Low Priority Matches: {', '.join(matched_tags['low'])}*\n\n"
+                
+                md_content += "---\n\n"
+            
+            if len(keyword_matches) > 10:
+                md_content += f"*...and {len(keyword_matches) - 10} more matches.*\n\n"
+        else:
+            md_content += "*No matches found for the provided keywords.*\n\n"
+    
+    # Add all matching sentences section
+    md_content += f"## All Matching Content ({total_matches} matches)\n\n"
     
     # Add matching sentences
     for i, sentence in enumerate(matched_sentences, 1):
@@ -533,10 +610,6 @@ def generate_markdown_report(job: Dict, matches: Dict, include_cover_letter: boo
         all_tags = sentence.get("all_tags", [])
         
         md_content += f"### {i}. Score: {score:.2f} (Rating: {rating}/10)\n\n"
-        
-        # Show if this is a sentence group
-        if sentence.get("is_sentence_group", False):
-            md_content += "**SENTENCE GROUP**\n\n"
         
         md_content += f"{sentence.get('text', '')}\n\n"
         
@@ -576,7 +649,7 @@ def generate_markdown_report(job: Dict, matches: Dict, include_cover_letter: boo
     
     return md_content
 
-def save_markdown_report(job: Dict, matches: Dict, include_cover_letter: bool = False, print_prompt_only: bool = False, model: str = DEFAULT_LLM_MODEL) -> str:
+def save_markdown_report(job: Dict, matches: Dict, include_cover_letter: bool = False, print_prompt_only: bool = False, model: str = DEFAULT_LLM_MODEL, keywords: List[str] = None) -> str:
     """
     Save a markdown report for the job matches.
     
@@ -586,6 +659,7 @@ def save_markdown_report(job: Dict, matches: Dict, include_cover_letter: bool = 
         include_cover_letter: Whether to include a cover letter draft
         print_prompt_only: If True, print the prompt instead of generating a cover letter
         model: The LLM model to use for generation
+        keywords: Optional list of keywords to search for
         
     Returns:
         str: Path to the saved report
@@ -594,7 +668,7 @@ def save_markdown_report(job: Dict, matches: Dict, include_cover_letter: bool = 
     os.makedirs(REPORTS_DIR, exist_ok=True)
     
     # Generate report content
-    report_content = generate_markdown_report(job, matches, include_cover_letter, print_prompt_only, model)
+    report_content = generate_markdown_report(job, matches, include_cover_letter, print_prompt_only, model, keywords)
     
     # Create a filename based on job details
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -733,6 +807,95 @@ def run_multi_model_analysis(job_id: int, models: List[str], report: bool = Fals
     
     print(f"\nCompleted multi-model analysis for Job #{job_id}: {target_job['job_title']} at {target_job['org_name']}")
 
+def get_top_sentences_by_category(matches: Dict, top_n: int = 3) -> Dict:
+    """
+    Get the top N sentences for each tag priority category.
+    Each sentence will appear only once in the highest priority category it matches.
+    
+    Args:
+        matches: Dict with matched sentences
+        top_n: Number of top sentences to return for each category (default: 3)
+        
+    Returns:
+        Dict with top sentences organized by priority category
+    """
+    matched_sentences = matches.get("matches", [])
+    
+    # Initialize result structure
+    result = {
+        "high": [],
+        "medium": [],
+        "low": []
+    }
+    
+    # Track sentences we've already added
+    used_sentences = set()
+    
+    # First pass: add to high priority
+    for sentence in matched_sentences:
+        sentence_text = sentence.get("text", "")
+        matched_tags = sentence.get("matched_tags", {})
+        
+        if matched_tags.get("high") and len(result["high"]) < top_n and sentence_text not in used_sentences:
+            result["high"].append(sentence)
+            used_sentences.add(sentence_text)
+    
+    # Second pass: add to medium priority
+    for sentence in matched_sentences:
+        sentence_text = sentence.get("text", "")
+        matched_tags = sentence.get("matched_tags", {})
+        
+        if matched_tags.get("medium") and len(result["medium"]) < top_n and sentence_text not in used_sentences:
+            result["medium"].append(sentence)
+            used_sentences.add(sentence_text)
+    
+    # Third pass: add to low priority
+    for sentence in matched_sentences:
+        sentence_text = sentence.get("text", "")
+        matched_tags = sentence.get("matched_tags", {})
+        
+        if matched_tags.get("low") and len(result["low"]) < top_n and sentence_text not in used_sentences:
+            result["low"].append(sentence)
+            used_sentences.add(sentence_text)
+    
+    return result
+
+def search_sentences_by_keywords(matches: Dict, keywords: List[str]) -> List[Dict]:
+    """
+    Search for sentences that match specific keywords.
+    
+    Args:
+        matches: Dict with matched sentences
+        keywords: List of keywords to search for
+        
+    Returns:
+        List of matching sentences sorted by score
+    """
+    if not keywords:
+        return []
+    
+    matched_sentences = matches.get("matches", [])
+    keyword_matches = []
+    
+    # Convert keywords to lowercase for case-insensitive matching
+    keywords_lower = [k.lower() for k in keywords]
+    
+    # Process each sentence
+    for sentence in matched_sentences:
+        text = sentence.get("text", "").lower()
+        all_tags = [tag.lower() for tag in sentence.get("all_tags", [])]
+        
+        # Check if any keyword matches the sentence text or tags
+        for keyword in keywords_lower:
+            if keyword in text or any(keyword in tag for tag in all_tags):
+                keyword_matches.append(sentence)
+                break
+    
+    # Sort by score
+    keyword_matches.sort(key=lambda x: x.get("score", 0), reverse=True)
+    
+    return keyword_matches
+
 def main():
     """Main function to run the cover letter matcher."""
     parser = argparse.ArgumentParser(description="Match cover letter sentences to job requirements")
@@ -741,6 +904,10 @@ def main():
     parser.add_argument("--report", action="store_true", help="Generate a markdown report")
     parser.add_argument("--cover-letter", action="store_true", help="Include a cover letter draft in the report")
     parser.add_argument("--print-prompt", action="store_true", help="Print the LLM prompt instead of generating a cover letter")
+    
+    # Add arguments for search functionality
+    parser.add_argument("--keywords", nargs="+", help="Search for sentences matching these keywords")
+    parser.add_argument("--top-n", type=int, default=3, help="Number of top sentences to show per category (default: 3)")
     
     # Add arguments for configurable scoring weights
     parser.add_argument("--high-weight", type=float, help=f"Weight for high priority matches (default: {SCORING_WEIGHTS['high_priority_match']})")
@@ -826,7 +993,7 @@ def main():
     
     # Generate report if requested or display matches
     if args.report:
-        report_path = save_markdown_report(target_job, matches, args.cover_letter, args.print_prompt, args.llm_model)
+        report_path = save_markdown_report(target_job, matches, args.cover_letter, args.print_prompt, args.llm_model, args.keywords)
         print(f"\nReport generated: {report_path}")
     # If just print-prompt is requested (without report), print the prompt to terminal
     elif args.print_prompt and args.cover_letter:
@@ -842,7 +1009,85 @@ def main():
         print("="*80)
         print(cover_letter)
         print("="*80)
+    # If keywords are provided but no report, show keyword search results
+    elif args.keywords and not args.report:
+        keyword_matches = search_sentences_by_keywords(matches, args.keywords)
+        print(f"\nKEYWORD SEARCH RESULTS FOR: {', '.join(args.keywords)}")
+        print("="*80)
+        if keyword_matches:
+            for i, sentence in enumerate(keyword_matches[:10], 1):  # Show top 10
+                score = sentence.get("score", 0)
+                rating = sentence.get("rating", 0)
+                print(f"{i}. Score: {score:.2f} (Rating: {rating}/10)")
+                print(f"   {sentence.get('text', '')}")
+                print()
+            
+            if len(keyword_matches) > 10:
+                print(f"...and {len(keyword_matches) - 10} more matches. Generate a report to see all matches.")
+        else:
+            print("No matches found for the provided keywords.")
     else:
+        # Display top sentences by category
+        if not args.report:
+            top_sentences = get_top_sentences_by_category(matches, args.top_n)
+            
+            print(f"\nTOP {args.top_n} SENTENCES BY CATEGORY:")
+            print("="*80)
+            
+            # High priority sentences
+            print("\nHIGH PRIORITY:")
+            if top_sentences["high"]:
+                for i, sentence in enumerate(top_sentences["high"], 1):
+                    score = sentence.get("score", 0)
+                    rating = sentence.get("rating", 0)
+                    print(f"{i}. Score: {score:.2f} (Rating: {rating}/10)")
+                    print(f"   {sentence.get('text', '')}")
+                    
+                    # Show matched tags
+                    matched_tags = sentence.get("matched_tags", {}).get("high", [])
+                    if matched_tags:
+                        print(f"   Matched tags: {', '.join(matched_tags)}")
+                    print()
+            else:
+                print("   No high priority matches found")
+            
+            # Medium priority sentences
+            print("\nMEDIUM PRIORITY:")
+            if top_sentences["medium"]:
+                for i, sentence in enumerate(top_sentences["medium"], 1):
+                    score = sentence.get("score", 0)
+                    rating = sentence.get("rating", 0)
+                    print(f"{i}. Score: {score:.2f} (Rating: {rating}/10)")
+                    print(f"   {sentence.get('text', '')}")
+                    
+                    # Show matched tags
+                    matched_tags = sentence.get("matched_tags", {}).get("medium", [])
+                    if matched_tags:
+                        print(f"   Matched tags: {', '.join(matched_tags)}")
+                    print()
+            else:
+                print("   No medium priority matches found")
+            
+            # Low priority sentences
+            print("\nLOW PRIORITY:")
+            if top_sentences["low"]:
+                for i, sentence in enumerate(top_sentences["low"], 1):
+                    score = sentence.get("score", 0)
+                    rating = sentence.get("rating", 0)
+                    print(f"{i}. Score: {score:.2f} (Rating: {rating}/10)")
+                    print(f"   {sentence.get('text', '')}")
+                    
+                    # Show matched tags
+                    matched_tags = sentence.get("matched_tags", {}).get("low", [])
+                    if matched_tags:
+                        print(f"   Matched tags: {', '.join(matched_tags)}")
+                    print()
+            else:
+                print("   No low priority matches found")
+            
+            print("\nFor all matches, use --report to generate a full report")
+        
+        # Also display regular matches
         display_matches(target_job, matches)
     
     print(f"\nCompleted analysis for Job #{args.job_id}: {target_job['job_title']} at {target_job['org_name']}")
@@ -854,6 +1099,8 @@ def main():
         print(f"To print the LLM prompt instead of generating a cover letter, add the --print-prompt flag")
     if args.cover_letter:
         print(f"LLM model used: {args.llm_model}")
+    if not args.keywords:
+        print(f"To search for specific keywords, use --keywords <keyword1> <keyword2> ...")
 
 if __name__ == "__main__":
     main()
