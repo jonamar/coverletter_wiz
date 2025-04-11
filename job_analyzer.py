@@ -2,8 +2,9 @@
 """
 Job Analyzer
 
-A tool that scrapes job postings, analyzes them with a local LLM (via Ollama),
-and categorizes them based on a predefined set of tags.
+A tool that scrapes job postings, analyzes them with spaCy (for tag analysis) and
+a local LLM (for basic job information), and categorizes them based on a predefined
+set of tags.
 """
 
 import os
@@ -17,6 +18,7 @@ import requests
 from bs4 import BeautifulSoup
 from pathlib import Path
 from datetime import datetime
+from spacy_utils import prioritize_tags_for_job
 
 # Output file for storing analyzed jobs
 ANALYZED_JOBS_FILE = "analyzed_jobs.json"
@@ -110,7 +112,7 @@ def extract_main_content(html_content):
 
 def analyze_job_posting(url, job_text, categories):
     """
-    Analyze a job posting using Ollama.
+    Analyze a job posting using spaCy for tag analysis and Ollama for basic info extraction.
     
     Args:
         url (str): URL of the job posting
@@ -121,13 +123,7 @@ def analyze_job_posting(url, job_text, categories):
         dict: Analyzed job data
     """
     try:
-        # Prepare the list of all possible tags
-        all_tags = []
-        for category, items in categories.items():
-            all_tags.extend(items)
-        tags_string = ", ".join(all_tags)
-        
-        # Get basic job info and summary
+        # Get basic job info and summary (still using LLM as this is more complex)
         job_info_prompt = f"""Given the following job posting text, extract:
 1. The organization/company name
 2. The job title
@@ -163,58 +159,8 @@ SUMMARY: [One sentence summary]
             elif line.startswith('SUMMARY:'):
                 summary = line.replace('SUMMARY:', '').strip()
         
-        # Create tags prompt
-        tags_prompt = f"""Let's analyze this job posting carefully:
-
-Job posting: "{job_text[:3000]}"
-
-Based on this job posting, I need you to identify the most relevant tags from this list: {tags_string}
-
-Think about:
-1. The key skills and competencies required
-2. The industry domain
-3. The expected outcomes and impacts
-4. Team and organizational values
-
-Select exactly 10 tags total, and group them into priority levels:
-- HIGH PRIORITY: 3-4 tags that are absolutely essential to this job
-- MEDIUM PRIORITY: 3-4 tags that are important but not critical
-- LOW PRIORITY: 2-3 tags that are relevant but less emphasized
-
-Output your tags in this exact format:
-HIGH: tag1, tag2, tag3, tag4
-MEDIUM: tag5, tag6, tag7
-LOW: tag8, tag9, tag10
-"""
-        
-        # Get tags with priorities
-        response = ollama.generate(model="deepseek-r1:8b", prompt=tags_prompt)
-        tags_completion = ""
-        for chunk in response:
-            if isinstance(chunk, tuple) and chunk[0] == "response":
-                tags_completion += chunk[1]
-        
-        # Extract prioritized tags
-        high_priority = []
-        medium_priority = []
-        low_priority = []
-        
-        for line in tags_completion.split('\n'):
-            line = line.strip()
-            if line.startswith('HIGH:'):
-                tags_part = line.replace('HIGH:', '').strip()
-                high_priority = [tag.strip() for tag in tags_part.split(',')]
-            elif line.startswith('MEDIUM:'):
-                tags_part = line.replace('MEDIUM:', '').strip()
-                medium_priority = [tag.strip() for tag in tags_part.split(',')]
-            elif line.startswith('LOW:'):
-                tags_part = line.replace('LOW:', '').strip()
-                low_priority = [tag.strip() for tag in tags_part.split(',')]
-        
-        # Filter tags to ensure they're in our original list
-        valid_high = [tag for tag in high_priority if tag in all_tags]
-        valid_medium = [tag for tag in medium_priority if tag in all_tags]
-        valid_low = [tag for tag in low_priority if tag in all_tags]
+        # Use spaCy-based approach to generate prioritized tags
+        prioritized_tags = prioritize_tags_for_job(job_text, categories)
         
         # Create job data structure
         job_data = {
@@ -224,11 +170,7 @@ LOW: tag8, tag9, tag10
             "url": url,
             "date_scraped": datetime.now().isoformat(),
             "summary": summary,
-            "tags": {
-                "high_priority": valid_high,
-                "medium_priority": valid_medium,
-                "low_priority": valid_low
-            },
+            "tags": prioritized_tags,
             "raw_text": job_text
         }
         

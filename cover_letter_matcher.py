@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Cover Letter Matcher - A tool to match high-rated sentences to job requirements.
+Cover Letter Matcher - A tool to match high-rated sentences and sentence groups to job requirements.
 
-This tool finds the best sentences from your cover letters that match the tags
-in a job posting, organized by priority level.
+This tool finds the best sentences and sentence groups from your cover letters that match 
+the tags in a job posting, organized by priority level.
 
 Usage:
     python cover_letter_matcher.py [options]
@@ -115,13 +115,13 @@ def update_job_ids(jobs_data: Dict) -> Dict:
 
 def get_all_rated_sentences(sentences_data: Dict) -> List[Dict]:
     """
-    Extract all sentences with ratings from the processed cover letters.
+    Extract all sentences and sentence groups with ratings from the processed cover letters.
     
     Args:
         sentences_data: Data from processed_cover_letters.json
         
     Returns:
-        List of sentence objects with text, rating, and tags
+        List of sentence objects with text, rating, tags, and group information
     """
     all_sentences = []
     
@@ -139,11 +139,17 @@ def get_all_rated_sentences(sentences_data: Dict) -> List[Dict]:
                 # Only include sentences with ratings above threshold
                 rating = sentence.get("rating", 0)
                 if rating >= MIN_RATING_THRESHOLD:
+                    # Include fields that indicate if this is a sentence group
+                    is_group = sentence.get("is_sentence_group", False)
+                    component_sentences = sentence.get("component_sentences", [])
+                    
                     all_sentences.append({
                         "text": sentence.get("text", ""),
                         "rating": rating,
                         "tags": sentence.get("tags", []),
-                        "source": file_key
+                        "source": file_key,
+                        "is_sentence_group": is_group,
+                        "component_sentences": component_sentences
                     })
     
     # Sort by rating (highest first)
@@ -152,11 +158,11 @@ def get_all_rated_sentences(sentences_data: Dict) -> List[Dict]:
 
 def find_matching_sentences(job: Dict, all_sentences: List[Dict]) -> Dict:
     """
-    Find sentences that match job tags, organized by sentence rather than tag.
+    Find sentences and sentence groups that match job tags, organized by sentence rather than tag.
     
     Args:
         job: Job data from analyzed_jobs.json
-        all_sentences: List of all rated sentences
+        all_sentences: List of all rated sentences and sentence groups
         
     Returns:
         Dict with matched sentences and tag information
@@ -185,7 +191,9 @@ def find_matching_sentences(job: Dict, all_sentences: List[Dict]) -> Dict:
                     "medium": [],
                     "low": []
                 },
-                "all_tags": sentence.get("tags", [])
+                "all_tags": sentence.get("tags", []),
+                "is_sentence_group": sentence.get("is_sentence_group", False),
+                "component_sentences": sentence.get("component_sentences", [])
             }
         
         # Check which job tags this sentence matches
@@ -201,122 +209,47 @@ def find_matching_sentences(job: Dict, all_sentences: List[Dict]) -> Dict:
             if tag in sentence_tags:
                 sentence_matches[sentence_text]["matched_tags"]["low"].append(tag)
     
-    # Calculate scores for each sentence
-    scored_sentences = []
+    # Calculate match scores
+    for sentence_text, match_info in sentence_matches.items():
+        # Count how many tags matched in each priority level
+        high_matches = len(match_info["matched_tags"]["high"])
+        medium_matches = len(match_info["matched_tags"]["medium"])
+        low_matches = len(match_info["matched_tags"]["low"])
+        
+        # Apply weights based on priority
+        score = (high_matches * SCORING_WEIGHTS["high_priority_match"] +
+                 medium_matches * SCORING_WEIGHTS["medium_priority_match"] +
+                 low_matches * SCORING_WEIGHTS["low_priority_match"])
+        
+        # Add a bonus for matching multiple tags
+        total_matches = high_matches + medium_matches + low_matches
+        if total_matches > 1:
+            score += (total_matches - 1) * SCORING_WEIGHTS["multi_tag_bonus"]
+        
+        # Multiply by the sentence rating (0-10) to get a final score
+        # This ensures that higher-rated sentences are preferred
+        rating = match_info["rating"]
+        final_score = score * (rating / 10)  # Normalize rating to 0-1
+        
+        match_info["score"] = final_score
+        match_info["match_count"] = total_matches
     
-    for text, match_info in sentence_matches.items():
-        # Skip sentences that don't match any tags
-        if not any(match_info["matched_tags"].values()):
-            continue
-            
-        # Count matches by priority
-        high_match_count = len(match_info["matched_tags"]["high"])
-        medium_match_count = len(match_info["matched_tags"]["medium"])
-        low_match_count = len(match_info["matched_tags"]["low"])
-        total_match_count = high_match_count + medium_match_count + low_match_count
-        
-        # Skip sentences that don't match any tags
-        if total_match_count == 0:
-            continue
-        
-        # Calculate score using configurable weights
-        base_score = match_info["rating"]
-        priority_bonus = (
-            high_match_count * SCORING_WEIGHTS["high_priority_match"] +
-            medium_match_count * SCORING_WEIGHTS["medium_priority_match"] +
-            low_match_count * SCORING_WEIGHTS["low_priority_match"]
-        )
-        
-        # Add bonus for matching multiple tags (only for tags after the first)
-        multi_tag_bonus = 0
-        if total_match_count > 1:
-            multi_tag_bonus = (total_match_count - 1) * SCORING_WEIGHTS["multi_tag_bonus"]
-        
-        final_score = base_score + priority_bonus + multi_tag_bonus
-        
-        # Create scored sentence entry
-        scored_sentence = {
-            "text": text,
-            "rating": match_info["rating"],
-            "score": final_score,
-            "matched_tags": match_info["matched_tags"],
-            "all_tags": match_info["all_tags"],
-            "match_count": total_match_count,
-            "source": match_info["source"]
-        }
-        
-        scored_sentences.append(scored_sentence)
-    
-    # Sort sentences by score (highest first)
-    scored_sentences.sort(key=lambda x: x["score"], reverse=True)
-    
-    # Organize matches for traditional tag-based display (for backward compatibility)
-    tag_based_matches = {
-        "high_priority": [],
-        "medium_priority": [],
-        "low_priority": []
+    # Filter out sentences with no matches
+    matched_sentences = {
+        text: info for text, info in sentence_matches.items()
+        if info.get("match_count", 0) > 0
     }
     
-    # Process high priority tags
-    for tag in high_priority_tags:
-        tag_matches = []
-        for sentence in scored_sentences:
-            if tag in sentence["matched_tags"]["high"]:
-                tag_matches.append({
-                    "text": sentence["text"],
-                    "rating": sentence["rating"],
-                    "adjusted_score": sentence["score"],
-                    "tags": sentence["all_tags"],
-                    "match_count": sentence["match_count"],
-                    "source": sentence["source"]
-                })
-        
-        tag_based_matches["high_priority"].append({
-            "tag": tag,
-            "sentences": tag_matches[:3]  # Only keep top 3 matches for each tag
-        })
-    
-    # Process medium priority tags
-    for tag in medium_priority_tags:
-        tag_matches = []
-        for sentence in scored_sentences:
-            if tag in sentence["matched_tags"]["medium"]:
-                tag_matches.append({
-                    "text": sentence["text"],
-                    "rating": sentence["rating"],
-                    "adjusted_score": sentence["score"],
-                    "tags": sentence["all_tags"],
-                    "match_count": sentence["match_count"],
-                    "source": sentence["source"]
-                })
-        
-        tag_based_matches["medium_priority"].append({
-            "tag": tag,
-            "sentences": tag_matches[:3]  # Only keep top 3 matches for each tag
-        })
-    
-    # Process low priority tags
-    for tag in low_priority_tags:
-        tag_matches = []
-        for sentence in scored_sentences:
-            if tag in sentence["matched_tags"]["low"]:
-                tag_matches.append({
-                    "text": sentence["text"],
-                    "rating": sentence["rating"],
-                    "adjusted_score": sentence["score"],
-                    "tags": sentence["all_tags"],
-                    "match_count": sentence["match_count"],
-                    "source": sentence["source"]
-                })
-        
-        tag_based_matches["low_priority"].append({
-            "tag": tag,
-            "sentences": tag_matches[:3]  # Only keep top 3 matches for each tag
-        })
+    # Sort by score
+    sorted_matches = sorted(
+        matched_sentences.values(),
+        key=lambda x: x.get("score", 0),
+        reverse=True
+    )
     
     return {
-        "sentence_based": scored_sentences,
-        "tag_based": tag_based_matches
+        "matches": sorted_matches,
+        "total": len(sorted_matches)
     }
 
 def display_job_info(job: Dict) -> None:
@@ -342,32 +275,36 @@ def display_matches(job: Dict, matches: Dict) -> None:
         job: Job data
         matches: Dict with matched sentences
     """
-    display_job_info(job)
+    matched_sentences = matches.get("matches", [])
+    total_matches = matches.get("total", 0)
     
-    # Display sentences sorted by score
-    print("\nMATCHING SENTENCES (sorted by score):")
+    print(f"\nFound {total_matches} matching sentences for this job.\n")
     
-    for i, sentence in enumerate(matches["sentence_based"], 1):
-        # Format matched tags by priority
-        high_tags = ", ".join(sentence["matched_tags"]["high"])
-        medium_tags = ", ".join(sentence["matched_tags"]["medium"])
-        low_tags = ", ".join(sentence["matched_tags"]["low"])
+    for i, sentence in enumerate(matched_sentences[:10], 1):  # Show top 10
+        score = sentence.get("score", 0)
+        rating = sentence.get("rating", 0)
         
-        tag_info = []
-        if high_tags:
-            tag_info.append(f"High: {high_tags}")
-        if medium_tags:
-            tag_info.append(f"Medium: {medium_tags}")
-        if low_tags:
-            tag_info.append(f"Low: {low_tags}")
+        print(f"{i}. Score: {score:.2f} (Rating: {rating}/10)")
         
-        tags_str = "; ".join(tag_info)
+        # Print if this is a sentence group
+        if sentence.get("is_sentence_group", False):
+            print("   [SENTENCE GROUP]")
         
-        print(f"\n{i}. \"{sentence['text']}\"")
-        print(f"   Score: {sentence['score']:.1f} (Rating: {sentence['rating']}, Matches: {sentence['match_count']})")
-        print(f"   Tags: {tags_str}")
+        print(f"   {sentence.get('text', '')}")
+        
+        # Print matched tags by priority
+        matched_tags = sentence.get("matched_tags", {})
+        if matched_tags.get("high"):
+            print(f"   High Priority Matches: {', '.join(matched_tags['high'])}")
+        if matched_tags.get("medium"):
+            print(f"   Medium Priority Matches: {', '.join(matched_tags['medium'])}")
+        if matched_tags.get("low"):
+            print(f"   Low Priority Matches: {', '.join(matched_tags['low'])}")
+        
+        print()
     
-    print("\n" + "="*80)
+    if total_matches > 10:
+        print(f"...and {total_matches - 10} more matches. Generate a report to see all matches.")
 
 def query_ollama(prompt: str, model: str = OLLAMA_MODEL) -> str:
     """
@@ -408,59 +345,66 @@ def generate_cover_letter(job: Dict, matches: Dict, print_prompt_only: bool = Fa
     Returns:
         str: Generated cover letter or prompt if print_prompt_only is True
     """
-    # Extract top matching sentences (up to 20)
-    top_sentences = [s["text"] for s in matches["sentence_based"][:20]]
+    org_name = job.get("org_name", "the company")
+    job_title = job.get("job_title", "the position")
+    matches_list = matches.get("matches", [])
     
-    # Create a numbered list of the sentences for the LLM
-    sentences_list = "\n".join([f"{i+1}. {s}" for i, s in enumerate(top_sentences)])
+    # Get top matching sentences (up to 15)
+    top_matches = matches_list[:15]
     
-    # Build the prompt for the LLM
-    prompt = f"""
-You are a professional career coach helping to create a cover letter. 
-I'm applying for the role of {job['job_title']} at {job['org_name']}.
+    # Create a list of sentences with their ratings and tags
+    sentences_text = ""
+    for i, match in enumerate(top_matches, 1):
+        text = match.get("text", "")
+        rating = match.get("rating", 0)
+        tags = ", ".join(match.get("all_tags", []))
+        
+        # Add information about sentence groups
+        group_info = ""
+        if match.get("is_sentence_group", True):
+            group_info = " [SENTENCE GROUP]"
+        
+        sentences_text += f"Sentence {i}{group_info} (Rating: {rating}/10, Tags: {tags}):\n{text}\n\n"
+    
+    # Get the job tags
+    high_priority = ", ".join(job.get("tags", {}).get("high_priority", []))
+    medium_priority = ", ".join(job.get("tags", {}).get("medium_priority", []))
+    low_priority = ", ".join(job.get("tags", {}).get("low_priority", []))
+    
+    # Create the prompt
+    prompt = f"""Your task is to write a concise yet compelling cover letter for {job_title} at {org_name}.
 
-JOB SUMMARY:
-{job['summary']}
+The job's key requirements are:
+- High priority: {high_priority}
+- Medium priority: {medium_priority}
+- Low priority: {low_priority}
 
-KEY JOB TAGS (in order of priority):
-High Priority: {', '.join(job['tags']['high_priority'])}
-Medium Priority: {', '.join(job['tags']['medium_priority'])}
-Low Priority: {', '.join(job['tags']['low_priority'])}
+Use the following pre-written sentences (and sentence groups) as the primary content, reorganizing and connecting them into a cohesive cover letter:
 
-Here are my best matching sentences from previous cover letters (ordered by relevance):
-{sentences_list}
+{sentences_text}
 
-Please create a professional cover letter draft using the following template:
-'''
-Hello [name of org],
+Guidelines:
+1. Use ONLY the provided sentences - do not invent new content
+2. Organize the content logically, connecting sentences with smooth transitions
+3. Maintain the first-person perspective throughout
+4. Add a brief, generic introduction and conclusion
+5. Keep the cover letter to 2-3 paragraphs
+6. Focus on high-priority job requirements
+7. Ensure the cover letter is professional and position-focused
 
-[note my values and their connection with the org]
-
-[three sections, combining the best sentences into logical paragraph groupings, balancing flow and the prioritized tags. each section should have a simple heading.]
-
-Onwards,
-Jon
-'''
-
-Important instructions:
-1. Adjust the original sentences as minimally as possible
-2. Combine sentences that flow well together into three logical sections
-3. Add simple headings for each section
-4. The first paragraph should connect my values with the organization's mission
-5. Don't fabricate information - only use content from the provided sentences
-6. Only output the cover letter, no explanations
-
-Cover letter:
+Output just the cover letter text without explanation.
 """
     
-    # If print_prompt_only is True, just return the prompt
     if print_prompt_only:
         return prompt
     
-    # Otherwise, query the LLM
-    cover_letter = query_ollama(prompt)
-    
-    return cover_letter
+    try:
+        # Query the Ollama API
+        generated_text = query_ollama(prompt)
+        return generated_text
+    except Exception as e:
+        print(f"Error generating cover letter: {e}")
+        return "Error generating cover letter. Please try again later."
 
 def generate_markdown_report(job: Dict, matches: Dict, include_cover_letter: bool = False, print_prompt_only: bool = False) -> str:
     """
@@ -475,78 +419,92 @@ def generate_markdown_report(job: Dict, matches: Dict, include_cover_letter: boo
     Returns:
         str: Markdown content
     """
-    md = f"# Job Match Report: {job['job_title']} at {job['org_name']}\n\n"
-    md += f"**Job ID:** {job['id']}  \n"
-    md += f"**URL:** {job['url']}  \n"
-    md += f"**Date Scraped:** {job['date_scraped']}  \n\n"
+    org_name = job.get("org_name", "Unknown Organization")
+    job_title = job.get("job_title", "Unknown Position")
+    job_id = job.get("id", "")
+    job_url = job.get("url", "")
+    summary = job.get("summary", "No summary available")
     
-    md += f"## Summary\n\n{job['summary']}\n\n"
+    high_priority = job.get("tags", {}).get("high_priority", [])
+    medium_priority = job.get("tags", {}).get("medium_priority", [])
+    low_priority = job.get("tags", {}).get("low_priority", [])
     
-    md += "## Priority Tags\n\n"
-    md += "### High Priority\n\n"
-    for tag in job.get("tags", {}).get("high_priority", []):
-        md += f"- {tag}\n"
+    matched_sentences = matches.get("matches", [])
+    total_matches = matches.get("total", 0)
     
-    md += "\n### Medium Priority\n\n"
-    for tag in job.get("tags", {}).get("medium_priority", []):
-        md += f"- {tag}\n"
+    # Start building the markdown content
+    md_content = f"""# Job Analysis Report
+
+## Job #{job_id}: {job_title} at {org_name}
+
+**URL:** [{job_url}]({job_url})
+
+**Summary:** {summary}
+
+## Job Requirements
+
+### High Priority
+{', '.join(high_priority) if high_priority else 'None'}
+
+### Medium Priority
+{', '.join(medium_priority) if medium_priority else 'None'}
+
+### Low Priority
+{', '.join(low_priority) if low_priority else 'None'}
+
+## Matching Content ({total_matches} matches)
+
+"""
     
-    md += "\n### Low Priority\n\n"
-    for tag in job.get("tags", {}).get("low_priority", []):
-        md += f"- {tag}\n"
-    
-    # New sentence-centric format
-    md += "\n## Matching Sentences\n\n"
-    
-    for i, sentence in enumerate(matches["sentence_based"], 1):
-        md += f"{i}. \"{sentence['text']}\"\n\n"
-        md += f"   Score: {sentence['score']:.1f} (Rating: {sentence['rating']})\n"
+    # Add matching sentences
+    for i, sentence in enumerate(matched_sentences, 1):
+        score = sentence.get("score", 0)
+        rating = sentence.get("rating", 0)
+        all_tags = sentence.get("all_tags", [])
         
-        # List matched tags by priority
-        if sentence["matched_tags"]["high"]:
-            md += f"   High Priority Tags: {', '.join(sentence['matched_tags']['high'])}\n"
-        if sentence["matched_tags"]["medium"]:
-            md += f"   Medium Priority Tags: {', '.join(sentence['matched_tags']['medium'])}\n"
-        if sentence["matched_tags"]["low"]:
-            md += f"   Low Priority Tags: {', '.join(sentence['matched_tags']['low'])}\n"
+        md_content += f"### {i}. Score: {score:.2f} (Rating: {rating}/10)\n\n"
         
-        md += "\n"
+        # Show if this is a sentence group
+        if sentence.get("is_sentence_group", False):
+            md_content += "**SENTENCE GROUP**\n\n"
+        
+        md_content += f"{sentence.get('text', '')}\n\n"
+        
+        # Show matched tags by priority
+        matched_tags = sentence.get("matched_tags", {})
+        if matched_tags.get("high"):
+            md_content += f"**High Priority Matches:** {', '.join(matched_tags['high'])}\n\n"
+        if matched_tags.get("medium"):
+            md_content += f"**Medium Priority Matches:** {', '.join(matched_tags['medium'])}\n\n"
+        if matched_tags.get("low"):
+            md_content += f"**Low Priority Matches:** {', '.join(matched_tags['low'])}\n\n"
+        
+        # Show all tags
+        md_content += f"**All Tags:** {', '.join(all_tags)}\n\n"
+        
+        # Show source file
+        source = sentence.get("source", "Unknown")
+        md_content += f"**Source:** {source}\n\n"
+        
+        md_content += "---\n\n"
     
-    # Add information about scoring weights
-    md += "## Scoring Information\n\n"
-    md += "Sentences are scored using the following formula:\n\n"
-    md += "```\nScore = Base Rating + Priority Bonuses + Multi-Tag Bonus\n```\n\n"
-    md += "Where:\n"
-    md += f"- High Priority Match: +{SCORING_WEIGHTS['high_priority_match']} per tag\n"
-    md += f"- Medium Priority Match: +{SCORING_WEIGHTS['medium_priority_match']} per tag\n"
-    md += f"- Low Priority Match: +{SCORING_WEIGHTS['low_priority_match']} per tag\n"
-    md += f"- Multi-Tag Bonus: +{SCORING_WEIGHTS['multi_tag_bonus']} for each additional tag after the first\n"
-    
-    # Add cover letter section if requested
+    # Add cover letter if requested
     if include_cover_letter:
-        md += "\n## Cover Letter Draft\n\n"
+        md_content += "## Cover Letter Draft\n\n"
         
         if print_prompt_only:
-            md += "The following is the prompt that would be sent to the LLM to generate a cover letter.\n"
-            md += "You can use this prompt with any LLM of your choice.\n\n"
-            md += "```\n"  # Format as code block for better formatting
-            
             prompt = generate_cover_letter(job, matches, print_prompt_only=True)
-            md += prompt + "\n"
-            
-            md += "```\n\n"
+            md_content += "### LLM Prompt\n\n"
+            md_content += f"```\n{prompt}\n```\n\n"
         else:
-            md += "The following is an automatically generated cover letter draft based on your top-scoring sentences.\n"
-            md += "Feel free to edit and personalize it to better match your voice and specific circumstances.\n\n"
-            md += "```\n"  # Format as code block for better formatting
-            
             cover_letter = generate_cover_letter(job, matches)
-            md += cover_letter + "\n"
-            
-            md += "```\n\n"
-            md += "_Note: This draft was generated by AI and may need human review and customization._\n"
+            md_content += cover_letter + "\n\n"
     
-    return md
+    # Add footer
+    md_content += "---\n"
+    md_content += f"Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+    
+    return md_content
 
 def save_markdown_report(job: Dict, matches: Dict, include_cover_letter: bool = False, print_prompt_only: bool = False) -> str:
     """

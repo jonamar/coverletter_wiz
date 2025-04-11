@@ -2,8 +2,8 @@
 DejaWrite - Cover Letter Processing Tool
 
 This script processes cover letters from text files and extracts structured data including:
-- Paragraphs and sentences
-- Automatically generated tags using a local LLM (deepseek-r1:8b via Ollama)
+- Paragraphs and sentences/sentence groups
+- Automatically generated tags using spaCy's semantic similarity and keyword matching
 - Sentence ratings (preserved across processing runs)
 
 The script organizes cover letter content for later use in the cover letter generation
@@ -11,14 +11,16 @@ pipeline, working alongside job_analyzer.py, sentence_rater.py, and cover_letter
 
 Requirements:
 - Python 3.6+
-- spaCy with en_core_web_sm model
-- Ollama with deepseek-r1:8b model installed
+- spaCy with en_core_web_sm or en_core_web_md model
 - categories.yaml file with tag categories
 
 CLI Usage:
     python deja_write.py write
         Process all text files in the text-archive directory and update the JSON file.
         New files will be added, and existing files will be updated while preserving ratings.
+
+    python deja_write.py write --force
+        Force reprocessing of all files even if unchanged.
 
 Output:
     The script generates a processed_cover_letters.json file containing structured data
@@ -30,9 +32,10 @@ import json
 import uuid
 import spacy
 import yaml
-import ollama
+import argparse
 from pathlib import Path
 from datetime import datetime
+from spacy_utils import identify_sentence_groups, assign_tags_with_spacy
 
 def load_categories(yaml_file):
     """Load categories from a YAML file."""
@@ -45,56 +48,16 @@ def load_categories(yaml_file):
         return None
 
 def get_category_tags(text, categories, max_tags=5, context=""):
-    """Query the local LLM to classify the text with relevant category tags."""
+    """
+    Assign tags to text using spaCy-based semantic similarity and keyword matching.
+    Returns tags with confidence scores.
+    """
     try:
-        # Prepare the list of all possible tags
-        all_tags = []
-        for category, items in categories.items():
-            all_tags.extend(items)
-        tags_string = ", ".join(all_tags)
-
-        # Prepare the prompt for the LLM
-        prompt = f"""Let's think about this step by step:
-
-1. First, read and understand the following text{' and its context' if context else ''}:
-{f'Context: {context}' if context else ''}
-Text: "{text}"
-
-2. Here are the available tags to choose from:
-{tags_string}
-
-3. Think through these questions:
-- What are the main themes in this text?
-- What skills or competencies are demonstrated?
-- What outcomes or impacts are mentioned?
-- What values are expressed?
-
-4. Based on your analysis, select up to {max_tags} most relevant tags from the provided list.
-
-Output your final tags in this exact format:
-TAGS: tag1, tag2, tag3
-"""
-        # Query the LLM
-        response = ollama.generate(model="deepseek-r1:8b", prompt=prompt)
-        completion = ""
-        for chunk in response:
-            if isinstance(chunk, tuple) and chunk[0] == "response":
-                completion += chunk[1]
-        
-        # Extract tags from the response - look for the TAGS: prefix
-        tags = []
-        for line in completion.split('\n'):
-            if line.strip().startswith('TAGS:'):
-                tags_part = line.replace('TAGS:', '').strip()
-                tags = [tag.strip() for tag in tags_part.split(',')]
-                break
-        
-        # Filter out any tags that aren't in our original list
-        valid_tags = [tag for tag in tags if tag in all_tags]
-        return valid_tags[:max_tags]
-
+        # Get tags with confidence scores
+        tags_with_scores = assign_tags_with_spacy(text, categories, max_tags)
+        return tags_with_scores
     except Exception as e:
-        print(f"Error connecting to the local LLM: {e}")
+        print(f"Error in spaCy-based tagging: {e}")
         return []
 
 def process_cover_letter(content):
@@ -113,31 +76,51 @@ def process_cover_letter(content):
         if not paragraph:
             continue
         
-        # Tokenize into sentences using spaCy
-        doc = nlp(paragraph)
-        processed_sentences = []
+        # Get paragraph-level tags with confidence scores
+        paragraph_tags_with_scores = get_category_tags(paragraph, categories)
         
-        # Get paragraph-level tags
-        paragraph_tags = get_category_tags(paragraph, categories)
+        # Extract just the tag names for the paragraph
+        paragraph_tags = [tag["name"] for tag in paragraph_tags_with_scores]
         document_tags.update(paragraph_tags)
         
-        # Process each sentence
-        for sent in doc.sents:
-            sentence_text = sent.text.strip()
-            # Get sentence-level tags, including paragraph as context
-            sentence_tags = get_category_tags(
-                sentence_text, 
+        # Use spaCy to identify sentence groups within the paragraph
+        sentence_groups = identify_sentence_groups(paragraph)
+        processed_sentences = []
+        
+        # Process each sentence or sentence group
+        for group in sentence_groups:
+            group_text = group["text"]
+            is_group = group["is_sentence_group"]
+            
+            # Get tags with confidence scores for the sentence or group
+            group_tags_with_scores = get_category_tags(
+                group_text, 
                 categories, 
-                max_tags=3,  # Fewer tags per sentence
+                max_tags=5,  # Get more tags initially to have better selection
                 context=f"From paragraph: {paragraph}"
             )
             
+            # Sort by confidence score and take top 2 as primary tags
+            group_tags_with_scores.sort(key=lambda x: x["confidence"], reverse=True)
+            primary_tags = [tag["name"] for tag in group_tags_with_scores[:2]]
+            
+            # Include additional tags but mark them as secondary (for backward compatibility)
+            all_tags = primary_tags.copy()
+            for tag in group_tags_with_scores[2:]:
+                if tag["name"] not in all_tags:
+                    all_tags.append(tag["name"])
+            
+            # Add the processed sentence or group
             processed_sentences.append({
-                "text": sentence_text,
-                "tags": sentence_tags
+                "text": group_text,
+                "tags": all_tags,
+                "primary_tags": primary_tags,
+                "tag_scores": {tag["name"]: tag["confidence"] for tag in group_tags_with_scores},
+                "is_sentence_group": is_group,
+                "component_sentences": group.get("component_sentences", [])
             })
         
-        # Store paragraph with its sentences and tags
+        # Store paragraph with its sentences/groups and tags
         processed_paragraphs.append({
             "text": paragraph,
             "tags": paragraph_tags,
@@ -148,7 +131,7 @@ def process_cover_letter(content):
 
 def preserve_existing_sentence_ratings(existing_data, new_paragraphs):
     """
-    Preserve existing ratings for sentences when updating the JSON file.
+    Preserve existing ratings for sentences and sentence groups when updating the JSON file.
     
     Args:
         existing_data: The existing data structure with ratings
@@ -203,7 +186,7 @@ def preserve_existing_sentence_ratings(existing_data, new_paragraphs):
     
     return new_paragraphs
 
-def process_cover_letters_batch(archive_dir, output_file):
+def process_cover_letters_batch(archive_dir, output_file, force_reprocess=False):
     """Process all cover letters in the archive directory and save to a single JSON file."""
     archive_path = Path(archive_dir)
     output_path = Path(output_file)
@@ -235,8 +218,8 @@ def process_cover_letters_batch(archive_dir, output_file):
     for text_file in text_files:
         source_file = text_file.name
         
-        # Skip if already processed and content hasn't changed
-        if source_file in processed_data:
+        # Skip if already processed and content hasn't changed, unless force_reprocess is True
+        if not force_reprocess and source_file in processed_data:
             file_mtime = os.path.getmtime(text_file)
             if file_mtime <= processed_data[source_file].get("metadata", {}).get("last_modified", 0):
                 continue
@@ -267,7 +250,7 @@ def process_cover_letters_batch(archive_dir, output_file):
             }
         }
         
-        # Update the data
+        # Add to processed data
         processed_data[source_file] = entry
         new_files_processed += 1
     
@@ -282,27 +265,31 @@ def process_cover_letters_batch(archive_dir, output_file):
     # Update last processed date
     processed_data["last_processed_date"] = datetime.now().isoformat()
     
-    # Save all data to the output file
+    # Save all processed data to JSON file
     with open(output_path, 'w') as f:
         json.dump(processed_data, f, indent=4)
+    
+    print(f"Processing complete. {new_files_processed} new or updated files processed.")
+    print(f"All processed cover letters saved to: {output_file}")
     
     return new_files_processed
 
 if __name__ == "__main__":
     import sys
     
+    # Set up argument parser
+    parser = argparse.ArgumentParser(description="Process cover letters and save to JSON")
+    parser.add_argument("command", choices=["write"], help="Command to execute")
+    parser.add_argument("--force", action="store_true", help="Force reprocessing of all files even if unchanged")
+    
+    # Parse arguments
+    args = parser.parse_args()
+    
     archive_dir = "text-archive"
     output_file = "processed_cover_letters.json"
     
-    # Check for the "write" command
-    if len(sys.argv) > 1 and sys.argv[1] == "write":
-        if not os.path.exists(archive_dir):
-            print(f"Error: Archive directory '{archive_dir}' not found.")
-            exit(1)
-        
-        new_files = process_cover_letters_batch(archive_dir, output_file)
-        print(f"Processing complete. {new_files} new or updated files processed.")
-        print(f"All processed cover letters saved to: {output_file}")
+    if args.command == "write":
+        new_files = process_cover_letters_batch(archive_dir, output_file, force_reprocess=args.force)
     else:
-        print("Usage: python deja_write.py write")
-        print("This will process all text files in the text-archive directory and update the JSON file.")
+        print(f"Unknown command: {args.command}")
+        print("Usage: python deja_write.py write [--force]")

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Sentence Rater - A CLI tool to compare and rate unique sentences from cover letters.
+Sentence Rater - A CLI tool to compare and rate unique sentences and sentence groups from cover letters.
 
-This tool extracts unique sentences from the processed_cover_letters.json file,
-allows for batch rating of sentences, and saves the ratings back to the file.
+This tool extracts unique sentences and sentence groups from the processed_cover_letters.json file,
+allows for batch rating of content, and saves the ratings back to the file.
 """
 
 import json
@@ -15,280 +15,162 @@ import spacy
 from pathlib import Path
 from typing import Dict, List, Tuple, Set, Optional
 from collections import defaultdict
+from datetime import datetime
+import uuid
 
 # Constants
 JSON_FILE = "processed_cover_letters.json"
 BATCH_RATING_SCALE = 10   # 1-10 scale for batch ratings
 FILTER_THRESHOLD = 2      # Ratings <= this value are filtered out
-BATCH_SIZE = 10           # Number of sentences to show in each batch
-REFINEMENT_THRESHOLD = 1  # Maximum rating difference to consider sentences for refinement
+BATCH_SIZE = 10           # Number of items to show in each batch
+REFINEMENT_THRESHOLD = 1  # Maximum rating difference to consider for refinement
 HIGH_RATING_THRESHOLD = 7 # Minimum rating to be considered high quality
+TOURNAMENT_MIN_RATING = 5 # Minimum rating to be included in tournament
+TOURNAMENT_MAX_RATING = 10.0 # Maximum rating to be included in tournament
+TOURNAMENT_GROUP_SIZE = 2 # Number of sentences to compare in each tournament round
+TOURNAMENT_WIN_RATING_CHANGE = 1.0  # Rating adjustment amount for tournament winners
+TOURNAMENT_LOSE_RATING_CHANGE = 0.5 # Rating adjustment amount for tournament losers
 
 class SentenceRater:
     """
-    A class for rating sentences from cover letters using a batch rating approach.
+    A class for rating sentences and sentence groups from cover letters using a batch rating approach.
     
-    This class extracts unique sentences from the processed_cover_letters.json file,
-    allows for batch rating of sentences, and saves the ratings back to the file.
+    This class extracts unique sentences and sentence groups from the processed_cover_letters.json file,
+    allows for batch rating of content, and saves the ratings back to the file.
     """
     
-    def __init__(self, json_file: str):
+    def __init__(self, json_file: str = JSON_FILE):
         """
-        Initialize the SentenceRater with a JSON file.
+        Initialize the SentenceRater with the given JSON file.
         
         Args:
-            json_file: Path to the processed_cover_letters.json file
+            json_file (str): Path to the JSON file containing processed cover letters
         """
         self.json_file = json_file
         self.data = self._load_data()
-        self.unique_sentences = self._extract_unique_sentences()
-        self.batch_ratings_done = self.data.get("batch_ratings_done", False)
-        self.refinement_done = self.data.get("refinement_done", False)
-        self.filtered_sentences = self.data.get("filtered_sentences", set())
-        self.last_processed_date = self.data.get("last_processed_date", "")
+        self.sentences = self._extract_sentences()
+        self.total_sentences = len(self.sentences)
+        self.rated_sentences = len([s for s in self.sentences if s.get("rating", 0) > 0])
+        self.high_rated_sentences = len([s for s in self.sentences if s.get("rating", 0) >= HIGH_RATING_THRESHOLD])
+        self.perfect_sentences = []  # Track sentences that reach a perfect score
         
-        # Convert filtered_sentences from list to set if it exists as a list
-        if isinstance(self.filtered_sentences, list):
-            self.filtered_sentences = set(self.filtered_sentences)
-        
-        # Clean up old ELO-related fields
-        self._cleanup_elo_fields()
-    
     def _load_data(self) -> Dict:
-        """
-        Load data from the JSON file.
-        
-        Returns:
-            Dict: The JSON data
-        """
+        """Load the JSON file containing processed cover letters."""
         try:
-            with open(self.json_file, "r") as f:
+            with open(self.json_file, 'r') as f:
                 return json.load(f)
         except FileNotFoundError:
-            print(f"Error: {self.json_file} not found.")
-            exit(1)
-        except json.JSONDecodeError:
-            print(f"Error: {self.json_file} is not a valid JSON file.")
-            exit(1)
-    
-    def _cleanup_elo_fields(self) -> None:
-        """Remove ELO-specific fields from the data."""
-        elo_fields = ["matches", "wins", "losses", "comparisons_done", "tier_stability", "initial_ratings_done"]
+            print(f"Error: File {self.json_file} not found.")
+            return {}
         
-        # Remove top-level fields
-        for field in elo_fields:
-            if field in self.data:
-                del self.data[field]
-        
-        # Remove fields from sentence objects
-        for filename, file_data in self.data.items():
-            # Skip non-file entries like metadata
-            if not isinstance(file_data, dict) or "content" not in file_data:
-                continue
-            
-            paragraphs = file_data["content"].get("paragraphs", [])
-            
-            for paragraph in paragraphs:
-                sentences = paragraph.get("sentences", [])
-                
-                for sentence in sentences:
-                    for field in ["matches", "wins", "losses"]:
-                        if field in sentence:
-                            del sentence[field]
-                    
-                    # Convert any existing rating to 1-10 scale if it's in ELO range
-                    if "rating" in sentence and sentence["rating"] > 100:  # Likely an ELO rating
-                        # Map from ELO range (typically 1000-1400) to 1-10 scale
-                        # This is an approximation
-                        elo = sentence["rating"]
-                        if elo < 1100:
-                            new_rating = 1
-                        elif elo > 1400:
-                            new_rating = 10
-                        else:
-                            # Linear mapping from 1100-1400 to 1-10
-                            new_rating = 1 + (elo - 1100) * 9 / 300
-                        
-                        sentence["rating"] = round(new_rating, 1)
-    
-    def _extract_unique_sentences(self) -> Dict[str, List[Tuple]]:
+    def _extract_sentences(self) -> List[Dict]:
         """
-        Extract all unique sentences from the data.
+        Extract unique sentences and sentence groups from the JSON data.
         
         Returns:
-            Dict: A dictionary mapping sentence text to a list of tuples (file, paragraph_index, sentence_index)
-                  that point to all instances of that sentence in the data
+            List[Dict]: A list of unique sentences and sentence groups with their metadata
         """
         unique_sentences = {}
         
         for filename, file_data in self.data.items():
-            # Skip non-file entries like metadata
+            # Skip metadata keys
             if not isinstance(file_data, dict) or "content" not in file_data:
                 continue
+                
+            paragraphs = file_data.get("content", {}).get("paragraphs", [])
             
-            paragraphs = file_data["content"].get("paragraphs", [])
-            
-            for p_idx, paragraph in enumerate(paragraphs):
+            for paragraph in paragraphs:
+                paragraph_text = paragraph.get("text", "")
                 sentences = paragraph.get("sentences", [])
                 
-                for s_idx, sentence in enumerate(sentences):
+                for sentence in sentences:
                     text = sentence.get("text", "").strip()
-                    
                     if not text:
                         continue
-                    
-                    # If this sentence text already exists and has a rating, keep track of it
-                    if text in unique_sentences:
-                        # Check if the existing sentence has a rating
-                        existing_loc = unique_sentences[text][0]
-                        existing_sentence = self._get_sentence_by_location(existing_loc)
-                        new_sentence = sentence
                         
-                        # If new sentence has a rating but existing doesn't, replace it
-                        if ("rating" in new_sentence and 
-                            ("rating" not in existing_sentence or existing_sentence["rating"] == 0)):
-                            unique_sentences[text] = []
-                    
+                    # Check if this is a new sentence or if we should update an existing one
                     if text not in unique_sentences:
-                        unique_sentences[text] = []
-                    
-                    unique_sentences[text].append((filename, p_idx, s_idx))
+                        # Create a new entry
+                        is_group = sentence.get("is_sentence_group", False)
+                        component_sentences = sentence.get("component_sentences", [])
+                        
+                        unique_sentences[text] = {
+                            "text": text,
+                            "sources": [filename],
+                            "rating": sentence.get("rating", 0),
+                            "batch_rating": sentence.get("batch_rating", False),
+                            "tags": sentence.get("tags", []),
+                            "is_sentence_group": is_group,
+                            "component_sentences": component_sentences,
+                            "context": paragraph_text
+                        }
+                    else:
+                        # Update existing entry
+                        if filename not in unique_sentences[text]["sources"]:
+                            unique_sentences[text]["sources"].append(filename)
+                            
+                        # Keep highest rating if multiple exist
+                        if sentence.get("rating", 0) > unique_sentences[text].get("rating", 0):
+                            unique_sentences[text]["rating"] = sentence.get("rating", 0)
+                            unique_sentences[text]["batch_rating"] = sentence.get("batch_rating", False)
         
-        return unique_sentences
+        return list(unique_sentences.values())
     
-    def _get_sentence_by_location(self, location: Tuple[str, int, int]) -> Dict:
-        """
-        Get a sentence object by its location.
-        
-        Args:
-            location: A tuple (filename, paragraph_index, sentence_index)
-        
-        Returns:
-            Dict: The sentence object
-        """
-        filename, p_idx, s_idx = location
-        return self.data[filename]["content"]["paragraphs"][p_idx]["sentences"][s_idx]
-    
-    def _save_data(self) -> None:
-        """Save the updated data back to the JSON file."""
-        # Update metadata in the data
-        self.data["batch_ratings_done"] = self.batch_ratings_done
-        self.data["refinement_done"] = self.refinement_done
-        self.data["filtered_sentences"] = list(self.filtered_sentences)
-        
-        # Update last processed date
-        from datetime import datetime
-        self.data["last_processed_date"] = datetime.now().isoformat()
-        self.last_processed_date = self.data["last_processed_date"]
-        
-        with open(self.json_file, "w") as f:
-            json.dump(self.data, f, indent=4)
-        
-        print(f"Data saved to {self.json_file}")
-    
-    def _get_sentence_rating(self, text: str) -> float:
-        """
-        Get the rating of a sentence.
-        
-        Args:
-            text: The text of the sentence
-            
-        Returns:
-            float: The rating of the sentence
-        """
-        locations = self.unique_sentences[text]
-        sentence = self._get_sentence_by_location(locations[0])
-        return sentence.get("rating", 0)
-    
-    def _get_all_sentence_ratings(self) -> List[Tuple[str, float]]:
-        """
-        Get all sentences with their ratings.
-        
-        Returns:
-            List: List of tuples (sentence_text, rating)
-        """
-        sentence_ratings = []
-        
-        for text, locations in self.unique_sentences.items():
-            # Skip filtered sentences
-            if text in self.filtered_sentences:
+    def _save_ratings(self) -> None:
+        """Save ratings back to the JSON file."""
+        for filename, file_data in self.data.items():
+            # Skip metadata keys
+            if not isinstance(file_data, dict) or "content" not in file_data:
                 continue
                 
-            sentence = self._get_sentence_by_location(locations[0])
-            rating = sentence.get("rating", 0)
-            sentence_ratings.append((text, rating))
-        
-        return sentence_ratings
-    
-    def _get_top_rated_sentences(self, n: int = 5) -> List[Tuple[str, float]]:
-        """
-        Get the top N rated sentences.
-        
-        Args:
-            n: Number of top sentences to return
-        
-        Returns:
-            List: List of tuples (sentence_text, rating)
-        """
-        sentence_ratings = self._get_all_sentence_ratings()
-        
-        # Sort by rating in descending order
-        sentence_ratings.sort(key=lambda x: x[1], reverse=True)
-        
-        return sentence_ratings[:n]
-    
-    def _set_batch_rating(self, text: str, rating: float) -> None:
-        """
-        Set the batch rating for a sentence.
-        
-        Args:
-            text: The text of the sentence
-            rating: The batch rating (1-10)
-        """
-        # Update all instances of the sentence
-        for location in self.unique_sentences[text]:
-            sentence = self._get_sentence_by_location(location)
-            sentence["rating"] = rating
-            sentence["batch_rating"] = True
+            paragraphs = file_data.get("content", {}).get("paragraphs", [])
             
-            # Add timestamp for when this rating was made
-            from datetime import datetime
-            sentence["last_rated"] = datetime.now().isoformat()
+            for paragraph in paragraphs:
+                sentences = paragraph.get("sentences", [])
+                
+                for i, sentence in enumerate(sentences):
+                    text = sentence.get("text", "").strip()
+                    
+                    # Find matching sentence in our processed list
+                    matching_sentence = next((s for s in self.sentences if s["text"] == text), None)
+                    
+                    if matching_sentence:
+                        # Update the rating and batch_rating flag
+                        sentences[i]["rating"] = matching_sentence["rating"]
+                        sentences[i]["batch_rating"] = matching_sentence.get("batch_rating", False)
+                        sentences[i]["last_rated"] = datetime.now().isoformat() if matching_sentence.get("batch_rating") else sentences[i].get("last_rated", "")
         
-        # If rating is below threshold, add to filtered sentences
-        if rating <= FILTER_THRESHOLD:
-            self.filtered_sentences.add(text)
+        # Save the updated data
+        with open(self.json_file, 'w') as f:
+            json.dump(self.data, f, indent=2)
+            
+        print(f"Ratings saved to {self.json_file}")
     
-    def _get_unrated_sentences(self) -> List[str]:
+    def _get_unrated_sentences(self) -> List[Dict]:
         """
         Get all sentences that haven't been rated yet.
         
         Returns:
-            List: List of sentence texts
+            List[Dict]: List of sentence dictionaries
         """
         unrated = []
         
-        for text, locations in self.unique_sentences.items():
-            sentence = self._get_sentence_by_location(locations[0])
-            
+        for sentence in self.sentences:
             # If sentence has no rating or rating is 0, it's unrated
-            if "rating" not in sentence or sentence["rating"] == 0:
-                unrated.append(text)
-            # If rating is below threshold, add to filtered
-            elif sentence["rating"] <= FILTER_THRESHOLD:
-                self.filtered_sentences.add(text)
+            if sentence.get("rating", 0) == 0:
+                unrated.append(sentence)
         
         return unrated
     
-    def _get_sentences_for_batch(self, batch_size: int) -> List[str]:
+    def _get_sentences_for_batch(self, batch_size: int) -> List[Dict]:
         """
         Get a batch of sentences for rating.
         
         Args:
-            batch_size: Number of sentences to include in the batch
+            batch_size (int): Number of sentences to include in the batch
             
         Returns:
-            List: List of sentence texts
+            List[Dict]: List of sentence dictionaries
         """
         # Get all unrated sentences
         unrated_sentences = self._get_unrated_sentences()
@@ -300,33 +182,6 @@ class SentenceRater:
         # Otherwise, return a random batch
         return random.sample(unrated_sentences, batch_size)
     
-    def _get_sentences_for_refinement(self) -> List[List[str]]:
-        """
-        Get groups of sentences that need refinement (similar ratings).
-        
-        Returns:
-            List: List of lists, where each inner list contains sentences with similar ratings
-        """
-        # Get all sentences with their ratings
-        sentence_ratings = self._get_all_sentence_ratings()
-        
-        # Group sentences by their rounded rating
-        rating_groups = defaultdict(list)
-        for text, rating in sentence_ratings:
-            # Only include high-rated sentences
-            if rating >= HIGH_RATING_THRESHOLD:
-                # Round to nearest 0.5
-                rounded_rating = round(rating * 2) / 2
-                rating_groups[rounded_rating].append(text)
-        
-        # Include all groups, even those with just one sentence
-        refinement_groups = list(rating_groups.values())
-        
-        # Sort groups by rating (highest first)
-        refinement_groups.sort(key=lambda group: self._get_sentence_rating(group[0]), reverse=True)
-        
-        return refinement_groups
-    
     def _run_batch_rating(self) -> None:
         """Run the batch rating phase."""
         # Get all unrated sentences
@@ -334,8 +189,6 @@ class SentenceRater:
         
         if not unrated_sentences:
             print("\nNo new sentences to rate.")
-            self.batch_ratings_done = True
-            self._save_data()
             return
         
         print("\n" + "=" * 40)
@@ -346,6 +199,7 @@ class SentenceRater:
         print("3-5 = Fair to Average")
         print("6-7 = Good")
         print("8-10 = Excellent")
+        print("Or enter 'e' to edit the sentence before rating")
         
         # Calculate number of batches
         num_batches = math.ceil(len(unrated_sentences) / BATCH_SIZE)
@@ -363,33 +217,62 @@ class SentenceRater:
             
             batch_ratings = []
             
-            for sentence_idx, text in enumerate(batch):
+            sentence_idx = 0
+            while sentence_idx < len(batch):
+                sentence = batch[sentence_idx]
                 print(f"\n{'-' * 40}")
-                print(f"{sentence_idx + 1}. {text}")
+                print(f"{sentence_idx + 1}. {sentence['text']}")
                 
                 while True:
                     try:
-                        rating_input = input("Rating (1-10, 's' to skip, 'q' to quit): ").lower().strip()
+                        rating_input = input("Rating (1-10, 'e' to edit, 's' to skip, 'q' to quit): ").lower().strip()
                         
                         if rating_input == 'q':
-                            self._save_data()
+                            self._save_ratings()
                             print("Rating process saved and exited.")
                             exit(0)
                         elif rating_input == 's':
+                            sentence_idx += 1
                             break
+                        elif rating_input == 'e':
+                            # Handle editing
+                            edited_sentence = self._edit_sentence(sentence)
+                            if edited_sentence:
+                                # Mark original sentence as poor quality
+                                sentence["rating"] = 1.0
+                                sentence["last_rated"] = datetime.now().isoformat()
+                                sentence["batch_rating"] = True
+                                sentence["edited"] = True
+                                
+                                # Add the edited sentence to the data
+                                self._add_edited_sentence(edited_sentence)
+                                self._save_ratings()
+                                
+                                # Now rate the new sentence
+                                print(f"\nNew sentence: {edited_sentence['text']}")
+                                # Continue with the normal flow but with the edited sentence
+                                # We'll stay at the same index but replace the sentence
+                                batch[sentence_idx] = edited_sentence
+                                break
+                            else:
+                                # If edit was canceled, continue with the original sentence
+                                continue
                         
                         rating = float(rating_input)
                         if 1 <= rating <= 10:
-                            self._set_batch_rating(text, rating)
+                            sentence["rating"] = rating
+                            sentence["last_rated"] = datetime.now().isoformat()
+                            sentence["batch_rating"] = True
                             batch_ratings.append(rating)
+                            sentence_idx += 1
                             break
                         else:
                             print("Please enter a number between 1 and 10.")
                     except ValueError:
-                        print("Please enter a valid number or 's' to skip.")
+                        print("Please enter a valid number, 'e' to edit, 's' to skip, or 'q' to quit.")
             
             # Save after each batch
-            self._save_data()
+            self._save_ratings()
             
             # Show batch summary
             if batch_ratings:
@@ -397,95 +280,78 @@ class SentenceRater:
                 print(f"\n{'-' * 40}")
                 print(f"Batch {batch_idx + 1} complete!")
                 print(f"Average rating: {avg_rating:.1f}")
-                print(f"Rated {len(batch_ratings)} out of {len(batch)} sentences in this batch.")
                 
                 if batch_idx < len(batches) - 1:
                     input("Press Enter to continue to the next batch...")
         
-        self.batch_ratings_done = True
-        self._save_data()
-        
         print("\nBatch rating phase completed!")
         
         # Show top rated sentences
-        top_sentences = self._get_top_rated_sentences(5)
+        top_sentences = sorted(self.sentences, key=lambda s: s.get("rating", 0), reverse=True)[:5]
         print("\nTOP RATED SENTENCES:")
-        for i, (text, rating) in enumerate(top_sentences, 1):
-            print(f"{i}. [{rating:.1f}/10] {text}")
+        for i, sentence in enumerate(top_sentences, 1):
+            print(f"{i}. [{sentence.get('rating', 0):.1f}/10] {sentence['text']}")
     
-    def _run_refinement(self) -> None:
-        """Run the refinement phase for similarly rated sentences."""
-        refinement_groups = self._get_sentences_for_refinement()
+    def _edit_sentence(self, sentence: Dict) -> Dict:
+        """
+        Allow the user to edit a sentence or sentence group.
         
-        if not refinement_groups:
-            print("\nNo sentence groups need refinement.")
-            self.refinement_done = True
-            self._save_data()
-            return
-        
+        Args:
+            sentence: The sentence dictionary to edit
+            
+        Returns:
+            Dict: The edited sentence dictionary, or None if canceled
+        """
         print("\n" + "=" * 40)
-        print("REFINEMENT PHASE")
+        print("EDIT MODE")
         print("=" * 40)
-        print("Please compare these similarly rated sentences to refine their rankings.")
         
-        for group_idx, group in enumerate(refinement_groups):
-            # Get the approximate rating of this group
-            group_rating = round(self._get_sentence_rating(group[0]))
-            
-            print(f"\n{'=' * 40}")
-            print(f"GROUP {group_idx + 1} OF {len(refinement_groups)} (Around {group_rating}/10)")
-            print(f"{'=' * 40}")
-            print("Rate these similar sentences more precisely (1-10, decimals allowed):")
-            
-            for sentence_idx, text in enumerate(group):
-                current_rating = self._get_sentence_rating(text)
-                print(f"\n{'-' * 40}")
-                print(f"{sentence_idx + 1}. Current rating: {current_rating:.1f}")
-                print(f"{text}")
-                
-                while True:
-                    try:
-                        rating_input = input("New rating (1-10, 's' to skip, 'q' to quit): ").lower().strip()
-                        
-                        if rating_input == 'q':
-                            self._save_data()
-                            print("Rating process saved and exited.")
-                            exit(0)
-                        elif rating_input == 's':
-                            break
-                        
-                        rating = float(rating_input)
-                        if 1 <= rating <= 10:
-                            self._set_batch_rating(text, rating)
-                            break
-                        else:
-                            print("Please enter a number between 1 and 10.")
-                    except ValueError:
-                        print("Please enter a valid number or 's' to skip.")
-            
-            # Save after each group
-            self._save_data()
-            
-            if group_idx < len(refinement_groups) - 1:
-                continue_input = input("\nPress Enter to continue to the next group, or 'q' to quit: ").lower().strip()
-                if continue_input == 'q':
-                    break
+        print("Original text:")
+        print(sentence.get("text", ""))
+        new_text = input("New version (leave empty to cancel): ").strip()
         
-        self.refinement_done = True
-        self._save_data()
+        if not new_text:
+            print("Edit canceled.")
+            return None
+            
+        # Create a new sentence dictionary
+        edited_sentence = {
+            "text": new_text,
+            "tags": sentence.get("tags", []).copy(),
+            "is_sentence_group": False,  # Always create as a single sentence
+            "component_sentences": [],
+            "edited_from": sentence.get("text", ""),
+            "edit_date": datetime.now().isoformat()
+        }
         
-        print("\nRefinement phase completed!")
-        
-        # Show top rated sentences
-        top_sentences = self._get_top_rated_sentences(5)
-        print("\nFINAL TOP RATED SENTENCES:")
-        for i, (text, rating) in enumerate(top_sentences, 1):
-            print(f"{i}. [{rating:.1f}/10] {text}")
+        return edited_sentence
     
+    def _add_edited_sentence(self, edited_sentence: Dict) -> None:
+        """
+        Add an edited sentence to the appropriate location in the JSON data.
+        
+        Args:
+            edited_sentence: The edited sentence dictionary
+        """
+        # Generate a unique ID for the edited sentence
+        edited_id = str(uuid.uuid4())
+        
+        # First, add to the sentences list for the current rating session
+        self.sentences.append(edited_sentence)
+        
+        # Find a suitable location in the JSON data
+        # We'll add it to a special "edited_sentences" section in the JSON
+        if "edited_sentences" not in self.data:
+            self.data["edited_sentences"] = {}
+        
+        self.data["edited_sentences"][edited_id] = edited_sentence
+        
+        print(f"Added edited sentence with ID: {edited_id}")
+
     def _show_stats(self) -> None:
         """Show statistics about the current state of the ratings."""
-        filtered_count = len(self.filtered_sentences)
-        total_count = len(self.unique_sentences)
+        filtered_count = len([s for s in self.sentences if s.get("rating", 0) <= FILTER_THRESHOLD])
+        total_count = len(self.sentences)
         active_count = total_count - filtered_count
         
         # Count unrated sentences
@@ -499,12 +365,8 @@ class SentenceRater:
         print(f"Active sentences: {active_count}")
         print(f"Unrated sentences: {unrated_count}")
         
-        if self.last_processed_date:
-            print(f"Last processed: {self.last_processed_date}")
-        
         # Show rating distribution
-        ratings = [self._get_sentence_rating(text) for text in self.unique_sentences.keys() 
-                  if text not in self.filtered_sentences and self._get_sentence_rating(text) > 0]
+        ratings = [s.get("rating", 0) for s in self.sentences if s.get("rating", 0) > 0]
         
         if ratings:
             avg_rating = sum(ratings) / len(ratings)
@@ -524,16 +386,16 @@ class SentenceRater:
                 print(f"{i:2d}: {bar} {count} ({percentage:.1f}%)")
         
         # Show top rated sentences
-        top_sentences = self._get_top_rated_sentences(5)
+        top_sentences = sorted(self.sentences, key=lambda s: s.get("rating", 0), reverse=True)[:5]
         print("\nTOP RATED SENTENCES:")
-        for i, (text, rating) in enumerate(top_sentences, 1):
-            print(f"{i}. [{rating:.1f}/10] {text}")
+        for i, sentence in enumerate(top_sentences, 1):
+            print(f"{i}. [{sentence.get('rating', 0):.1f}/10] {sentence['text']}")
         
         print("=" * 40)
     
     def run(self) -> None:
         """Run the sentence rating process."""
-        print(f"Found {len(self.unique_sentences)} unique sentences.")
+        print(f"Found {len(self.sentences)} unique sentences.")
         
         # Check for unrated sentences
         unrated_sentences = self._get_unrated_sentences()
@@ -541,48 +403,403 @@ class SentenceRater:
             print(f"Found {len(unrated_sentences)} unrated sentences.")
         
         # Show current status
-        if self.refinement_done and not unrated_sentences:
-            print("All sentences have been rated and refined.")
+        if not unrated_sentences:
+            print("All sentences have been rated.")
             self._show_stats()
             
-            restart = input("Would you like to restart the rating process? (y/n): ").lower().strip()
-            if restart == 'y':
-                self.batch_ratings_done = False
-                self.refinement_done = False
-                self.filtered_sentences = set()
-                self._save_data()
+            # After rating is complete, offer tournament mode
+            tournament_mode = input("Would you like to enter tournament mode to compare similar sentences? (y/n): ").lower().strip()
+            if tournament_mode == 'y':
+                self._run_tournament_mode()
             else:
-                print("Showing final statistics:")
-                self._show_stats()
-                return
+                restart = input("Would you like to restart the rating process? (y/n): ").lower().strip()
+                if restart == 'y':
+                    for sentence in self.sentences:
+                        sentence["rating"] = 0
+                        sentence["batch_rating"] = False
+                    self._save_ratings()
+                else:
+                    print("Showing final statistics:")
+                    self._show_stats()
+                    return
         
-        # Run batch rating phase if not done yet or if there are new unrated sentences
-        if not self.batch_ratings_done or unrated_sentences:
-            self.batch_ratings_done = False  # Reset if there are new sentences
-            self._run_batch_rating()
+        # Run batch rating phase
+        self._run_batch_rating()
         
-        # Run refinement phase if not done yet
-        if not self.refinement_done and self.batch_ratings_done:
-            self._run_refinement()
+        # After batch rating is complete, offer tournament mode
+        tournament_mode = input("Would you like to enter tournament mode to compare similar sentences? (y/n): ").lower().strip()
+        if tournament_mode == 'y':
+            self._run_tournament_mode()
         
         # Show final stats
         self._show_stats()
+        
+    def _get_categories_from_sentences(self) -> Dict[str, List[Dict]]:
+        """
+        Get a dictionary of categories mapped to sentences that have that tag.
+        Only includes sentences with ratings above TOURNAMENT_MIN_RATING.
+        
+        Returns:
+            Dictionary mapping category names to lists of sentences
+        """
+        categories = {}
+        
+        for sentence in self.sentences:
+            # Skip sentences with ratings below the threshold
+            if sentence.get("rating", 0) < TOURNAMENT_MIN_RATING:
+                continue
+                
+            # Use primary_tags if available, otherwise use regular tags
+            tags_to_use = sentence.get("primary_tags", sentence.get("tags", []))
+            
+            # If no primary tags but we have tag_scores, use the top 2 by confidence
+            if not tags_to_use and "tag_scores" in sentence:
+                # Sort tags by confidence score
+                sorted_tags = sorted(sentence["tag_scores"].items(), key=lambda x: x[1], reverse=True)
+                # Take top 2 tags
+                tags_to_use = [tag for tag, score in sorted_tags[:2]]
+            
+            # Add sentence to each of its categories
+            for tag in tags_to_use:
+                if tag not in categories:
+                    categories[tag] = []
+                categories[tag].append(sentence)
+        
+        return categories
+    
+    def _run_tournament_mode(self) -> None:
+        """Run the Apples to Apples tournament mode to compare similar sentences."""
+        print("\n" + "=" * 40)
+        print("APPLES TO APPLES TOURNAMENT MODE")
+        print("=" * 40)
+        print(f"Compare sentences rated {TOURNAMENT_MIN_RATING}+ to refine their ratings.")
+        print(f"Winner gets +{TOURNAMENT_WIN_RATING_CHANGE} points, loser loses {TOURNAMENT_LOSE_RATING_CHANGE} points.")
+        print(f"Sentences dropping below {TOURNAMENT_MIN_RATING} or reaching {TOURNAMENT_MAX_RATING} are removed from the tournament.")
+        print("=" * 40)
+        
+        # Get categories and sentences
+        categories = self._get_categories_from_sentences()
+        
+        if not categories:
+            print(f"No categories with sentences rated {TOURNAMENT_MIN_RATING}+ found.")
+            return
+            
+        # Calculate average rating for each category and sort by number of sentences
+        category_stats = []
+        for category, sentences in categories.items():
+            avg_rating = sum(s.get("rating", 0) for s in sentences) / len(sentences)
+            category_stats.append((category, len(sentences), avg_rating))
+        
+        # Sort by number of sentences (descending)
+        category_stats.sort(key=lambda x: x[1], reverse=True)
+            
+        while True:
+            # Show available categories
+            print(f"\nAvailable categories (showing only sentences rated {TOURNAMENT_MIN_RATING}+ and below {TOURNAMENT_MAX_RATING}):")
+            for i, (category, count, avg_rating) in enumerate(category_stats, 1):
+                print(f"{i}. {category} ({count} sentences, avg: {avg_rating:.1f})")
+                
+            # Let user select a category
+            try:
+                category_idx = input("\nSelect category number (or 'q' to quit): ").strip().lower()
+                
+                if category_idx == 'q':
+                    self._show_perfect_sentences()
+                    return
+                    
+                category_idx = int(category_idx) - 1
+                
+                if 0 <= category_idx < len(category_stats):
+                    selected_category = category_stats[category_idx][0]
+                    result = self._run_category_tournament(selected_category, categories[selected_category])
+                    
+                    # If user quit from the tournament, exit completely
+                    if result == "quit":
+                        return
+                    
+                    # If returning to menu, update categories
+                    if result == "menu":
+                        # Recalculate categories
+                        categories = self._get_categories_from_sentences()
+                        
+                        if not categories:
+                            print(f"No categories with sentences rated {TOURNAMENT_MIN_RATING}+ and below {TOURNAMENT_MAX_RATING} found.")
+                            self._show_perfect_sentences()
+                            return
+                            
+                        # Recalculate category stats
+                        category_stats = []
+                        for category, sentences in categories.items():
+                            avg_rating = sum(s.get("rating", 0) for s in sentences) / len(sentences)
+                            category_stats.append((category, len(sentences), avg_rating))
+                        
+                        # Sort by number of sentences (descending)
+                        category_stats.sort(key=lambda x: x[1], reverse=True)
+                else:
+                    print("Invalid category number.")
+            except ValueError:
+                print("Please enter a valid number or 'q'.")
+                
+        print("\nTournament mode completed!")
+        self._show_perfect_sentences()
+    
+    def _run_category_tournament(self, category: str, sentences: List[Dict]) -> None:
+        """
+        Run a tournament for a specific category.
+        
+        Args:
+            category: The category to run the tournament for
+            sentences: List of sentences in this category
+        """
+        print(f"\nStarting tournament for category: {category}")
+        print(f"Number of sentences: {len(sentences)}")
+        
+        # Make a copy of the sentences to avoid modifying the original list
+        tournament_sentences = sentences.copy()
+        
+        # Track pairs we've already compared
+        compared_pairs = set()
+        
+        round_num = 1
+        max_attempts = 50  # Maximum attempts to find a new comparison
+        
+        while tournament_sentences and len(tournament_sentences) >= 2:
+            print(f"\nRound {round_num}")
+            
+            # Create a group of sentences to compare
+            comparison_group = []
+            attempts = 0
+            
+            # Try to find sentences we haven't compared yet
+            while len(comparison_group) < TOURNAMENT_GROUP_SIZE and attempts < max_attempts:
+                if len(comparison_group) == 0:
+                    idx = random.randint(0, len(tournament_sentences) - 1)
+                    comparison_group.append(tournament_sentences[idx])
+                else:
+                    # For the second sentence, try to find one we haven't compared with the first
+                    found_new_pair = False
+                    for _ in range(max_attempts):
+                        idx = random.randint(0, len(tournament_sentences) - 1)
+                        candidate = tournament_sentences[idx]
+                        
+                        # Check if we've already compared these two sentences
+                        pair_id = self._get_pair_id(comparison_group[0], candidate)
+                        if pair_id not in compared_pairs and comparison_group[0] != candidate:
+                            comparison_group.append(candidate)
+                            found_new_pair = True
+                            break
+                            
+                    if not found_new_pair:
+                        # If we couldn't find a new pair, just pick a random one
+                        while len(comparison_group) < TOURNAMENT_GROUP_SIZE:
+                            idx = random.randint(0, len(tournament_sentences) - 1)
+                            candidate = tournament_sentences[idx]
+                            if candidate not in comparison_group:
+                                comparison_group.append(candidate)
+                                break
+                
+                attempts += 1
+            
+            # Display sentences for comparison
+            for i, sentence in enumerate(comparison_group):
+                print(f"\n{i+1}. [{sentence.get('rating', 0):.1f}] {sentence['text']}")
+            
+            # Get user selection
+            while True:
+                try:
+                    selection = input("\nBest sentence (1, 2, 's' to skip, 'e' to edit, 'q' to quit): ").strip().lower()
+                    
+                    if selection == 'q':
+                        self._save_ratings()
+                        print("Ratings saved to", JSON_FILE)
+                        print("\nExiting tournament mode.")
+                        self._show_perfect_sentences()
+                        return "quit"  # Signal to completely exit the tournament
+                    elif selection == 's':
+                        break
+                    elif selection == 'e':
+                        # Edit mode
+                        edit_selection = input("Which sentence to edit (1 or 2)? ").strip()
+                        try:
+                            edit_idx = int(edit_selection) - 1
+                            if 0 <= edit_idx < len(comparison_group):
+                                sentence_to_edit = comparison_group[edit_idx]
+                                edited_text = self._edit_sentence_text(sentence_to_edit['text'])
+                                if edited_text and edited_text != sentence_to_edit['text']:
+                                    # Update the sentence text
+                                    sentence_to_edit['text'] = edited_text
+                                    sentence_to_edit['edited'] = True
+                                    sentence_to_edit['last_edited'] = datetime.now().isoformat()
+                                    self._save_ratings()
+                                    print("Sentence updated and saved.")
+                                    
+                                    # Redisplay the sentences after editing
+                                    for i, sentence in enumerate(comparison_group):
+                                        print(f"\n{i+1}. [{sentence.get('rating', 0):.1f}] {sentence['text']}")
+                                else:
+                                    print("No changes made to the sentence.")
+                            else:
+                                print("Invalid selection. Please enter 1 or 2.")
+                        except ValueError:
+                            print("Please enter a valid number.")
+                        continue  # Continue the loop to get a valid selection
+                        
+                    selection = int(selection) - 1
+                    
+                    if 0 <= selection < len(comparison_group):
+                        # Update ratings
+                        winner = comparison_group[selection]
+                        new_rating = min(TOURNAMENT_MAX_RATING, winner.get("rating", 0) + TOURNAMENT_WIN_RATING_CHANGE)
+                        winner["rating"] = new_rating
+                        winner["last_tournament"] = datetime.now().isoformat()
+                        
+                        # Check if this sentence reached a perfect score
+                        if new_rating >= TOURNAMENT_MAX_RATING and winner not in self.perfect_sentences:
+                            self.perfect_sentences.append(winner)
+                            # Keep only the last 3 perfect sentences
+                            if len(self.perfect_sentences) > 3:
+                                self.perfect_sentences.pop(0)
+                        
+                        # Decrease rating for others
+                        for i, sentence in enumerate(comparison_group):
+                            if i != selection:
+                                sentence["rating"] = max(0.0, sentence.get("rating", 0) - TOURNAMENT_LOSE_RATING_CHANGE)
+                                sentence["last_tournament"] = datetime.now().isoformat()
+                                
+                        # Save after each comparison
+                        self._save_ratings()
+                        print("Ratings saved to", JSON_FILE)
+                        
+                        # Add this pair to compared pairs
+                        if len(comparison_group) == 2:
+                            pair_id = self._get_pair_id(comparison_group[0], comparison_group[1])
+                            compared_pairs.add(pair_id)
+                        
+                        # Show the winner
+                        print(f"\nRatings updated! Winner: {winner['text'][:100]}{'...' if len(winner['text']) > 100 else ''}")
+                        break
+                    else:
+                        print("Invalid selection. Please enter 1, 2, 's', 'e', or 'q'.")
+                except ValueError:
+                    print("Please enter a valid number or command.")
+            
+            # Remove sentences that fall below the threshold or reach perfect score
+            tournament_sentences = [s for s in tournament_sentences if 
+                                   (s.get("rating", 0) >= TOURNAMENT_MIN_RATING and 
+                                    s.get("rating", 0) < TOURNAMENT_MAX_RATING)]
+            
+            # Check if we should continue
+            if round_num % 5 == 0 or len(tournament_sentences) < 2:
+                # Offer three options
+                print("\nWhat would you like to do next?")
+                print("'c' to continue in this category")
+                print("'r' to return to the category picker")
+                print("'q' to quit")
+                
+                while True:
+                    next_action = input("Enter your choice: ").strip().lower()
+                    if next_action == 'c':
+                        if len(tournament_sentences) < 2:
+                            print("Not enough sentences left in this category. Returning to category menu.")
+                            return "menu"
+                        break
+                    elif next_action == 'r':
+                        return "menu"
+                    elif next_action == 'q':
+                        self._save_ratings()
+                        print("Ratings saved to", JSON_FILE)
+                        self._show_perfect_sentences()
+                        return "quit"
+                    else:
+                        print("Invalid choice. Please enter 'c', 'r', or 'q'.")
+                    
+            round_num += 1
+            
+        if len(tournament_sentences) < 2:
+            print(f"\nNot enough sentences left in {category} to continue tournament.")
+        else:
+            print(f"\n{category} tournament completed!")
+            
+        return "menu"  # Signal to return to category menu
+        
+    def _get_pair_id(self, sentence1: Dict, sentence2: Dict) -> str:
+        """
+        Generate a unique ID for a pair of sentences to track compared pairs.
+        
+        Args:
+            sentence1: First sentence
+            sentence2: Second sentence
+            
+        Returns:
+            A unique string ID for this pair
+        """
+        # Use the text as the identifier, sorted to ensure the same pair always gets the same ID
+        id1 = sentence1.get('text', '')
+        id2 = sentence2.get('text', '')
+        
+        # Sort to ensure (A,B) and (B,A) generate the same ID
+        if id1 > id2:
+            id1, id2 = id2, id1
+            
+        return f"{id1}|{id2}"
+
+    def _edit_sentence_text(self, text: str) -> str:
+        """
+        Allow the user to edit a sentence.
+        
+        Args:
+            text: The original sentence text
+            
+        Returns:
+            The edited sentence text, or None if canceled
+        """
+        print("\n" + "=" * 40)
+        print("EDIT MODE")
+        print("=" * 40)
+        
+        print("Original text:")
+        print(text)
+        new_text = input("New version (leave empty to cancel): ").strip()
+        
+        if not new_text:
+            print("Edit canceled.")
+            return None
+            
+        return new_text
+    
+    def _show_perfect_sentences(self):
+        """Show the last three sentences that reached a perfect score."""
+        if self.perfect_sentences:
+            print("\n" + "=" * 40)
+            print("PERFECT SCORE SENTENCES")
+            print("=" * 40)
+            for i, sentence in enumerate(reversed(self.perfect_sentences), 1):
+                print(f"{i}. {sentence['text']}")
+            print("=" * 40)
+
 
 def main():
     """Main function to run the sentence rater CLI tool."""
     parser = argparse.ArgumentParser(description="Rate sentences from cover letters")
     parser.add_argument("--file", default=JSON_FILE, help=f"Path to the JSON file (default: {JSON_FILE})")
-    parser.add_argument("--force-refinement", action="store_true", help="Force the refinement phase to run even if it was previously completed")
+    parser.add_argument("--tournament", action="store_true", help="Start directly in tournament mode")
     args = parser.parse_args()
     
     rater = SentenceRater(args.file)
     
-    # If force-refinement flag is set, reset refinement_done flag
-    if args.force_refinement:
-        rater.refinement_done = False
-        print("Forcing refinement phase to run...")
-    
-    rater.run()
+    if args.tournament:
+        # Skip batch rating if tournament flag is set
+        if rater._get_unrated_sentences():
+            print("Warning: There are unrated sentences. It's recommended to rate them first.")
+            proceed = input("Do you want to proceed directly to tournament mode? (y/n): ").lower().strip()
+            if proceed != 'y':
+                rater.run()
+                return
+        
+        rater._run_tournament_mode()
+        rater._show_stats()
+    else:
+        rater.run()
 
 if __name__ == "__main__":
     main()

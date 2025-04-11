@@ -1,0 +1,866 @@
+# Category Expansions - Related terms for improved tag matching
+# This file maps each category keyword to related terms that should match to that category
+# When a related term is found, the original category tag will be assigned
+
+# Skills & Competencies
+leadership:
+  - led
+  - managed
+  - directed
+  - oversaw
+  - supervised
+  - head
+  - leader
+  - leadership
+  - executive
+  - chief
+  - spearheaded
+  - guided
+  - coordinated
+  - captain
+  - steered
+  - command
+
+strategy:
+  - planned
+  - strategic
+  - vision
+  - roadmap
+  - direction
+  - strategy
+  - planning
+  - forecast
+  - foresight
+  - blueprint
+  - approach
+  - framework
+  - methodology
+  - tactics
+  - objectives
+  - goals
+  - initiatives
+
+execution:
+  - implemented
+  - delivered
+  - executed
+  - launched
+  - deployed
+  - built
+  - developed
+  - created
+  - established
+  - constructed
+  - produced
+  - accomplished
+  - achieved
+  - completed
+  - fulfilled
+  - realized
+  - performed
+  - actioned
+
+data_driven:
+  - metrics
+  - analytics
+  - data
+  - statistics
+  - measurement
+  - quantitative
+  - analysis
+  - insights
+  - kpi
+  - dashboard
+  - reporting
+  - trends
+  - patterns
+  - evidence-based
+  - empirical
+  - numbers
+  - figures
+  - quantifiable
+
+user_research:
+  - interviews
+  - usability
+  - testing
+  - surveys
+  - feedback
+  - user
+  - customer
+  - participant
+  - research
+  - observation
+  - ethnography
+  - focus group
+  - persona
+  - journey map
+  - empathy
+  - discovery
+  - needs assessment
+
+ux_design_collaboration:
+  - wireframes
+  - prototypes
+  - mockups
+  - design
+  - interface
+  - experience
+  - ux
+  - ui
+  - usability
+  - accessibility
+  - interaction
+  - visual
+  - designer
+  - collaborated
+  - partnered
+  - worked with
+  - teamed up
+
+cross_functional_collaboration:
+  - teams
+  - departments
+  - cross-team
+  - interdepartmental
+  - collaboration
+  - partnership
+  - cooperation
+  - coordination
+  - alignment
+  - synergy
+  - joint
+  - collective
+  - allied
+  - unified
+  - integrated
+  - cross-discipline
+  - multidisciplinary
+
+stakeholder_management:
+  - stakeholders
+  - executives
+  - clients
+  - customers
+  - partners
+  - investors
+  - board
+  - leadership
+  - management
+  - relationships
+  - engagement
+  - communication
+  - alignment
+  - expectations
+  - influence
+  - negotiation
+  - presentation
+
+technical_fluency:
+  - technical
+  - technology
+  - engineering
+  - development
+  - programming
+  - code
+  - software
+  - hardware
+  - systems
+  - architecture
+  - infrastructure
+  - platform
+  - stack
+  - framework
+  - language
+  - algorithm
+  - api
+  - database
+
+agile_lean_practices:
+  - agile
+  - scrum
+  - kanban
+  - sprint
+  - iteration
+  - lean
+  - continuous
+  - improvement
+  - retrospective
+  - standup
+  - backlog
+  - user story
+  - mvp
+  - minimum viable product
+  - incremental
+  - adaptive
+  - flexible
+  - responsive
+
+communication:
+  - communicated
+  - presented
+  - articulated
+  - conveyed
+  - expressed
+  - informed
+  - reported
+  - documented
+  - wrote
+  - authored
+  - published
+  - shared
+  - discussed
+  - explained
+  - clarified
+  - translated
+  - facilitated
+
+prioritization:
+  - prioritized
+  - ranked
+  - focused
+  - triaged
+  - assessed
+  - evaluated
+  - weighted
+  - selected
+  - chose
+  - determined
+  - decided
+  - allocated
+  - distributed
+  - balanced
+  - optimized
+  - streamlined
+  - efficiency
+
+problem_solving:
+  - solved
+  - resolved
+  - addressed
+  - fixed
+  - troubleshot
+  - diagnosed
+  - analyzed
+  - investigated
+  - examined
+  - explored
+  - identified
+  - uncovered
+  - discovered
+  - determined
+  - deduced
+  - inferred
+  - concluded
+
+change_management:
+  - transformation
+  - transition
+  - shift
+  - evolution
+  - adaptation
+  - adjustment
+  - modification
+  - alteration
+  - restructuring
+  - reorganization
+  - reform
+  - revamp
+  - overhaul
+  - update
+  - upgrade
+  - modernization
+  - improvement
+
+# Product Outcomes
+growth:
+  - increased
+  - expanded
+  - grew
+  - scaled
+  - amplified
+  - accelerated
+  - boosted
+  - enhanced
+  - improved
+  - advanced
+  - progressed
+  - developed
+  - extended
+  - broadened
+  - widened
+  - enlarged
+  - multiplied
+
+engagement:
+  - engaged
+  - involved
+  - participated
+  - interacted
+  - connected
+  - active
+  - usage
+  - adoption
+  - retention
+  - loyalty
+  - satisfaction
+  - experience
+  - feedback
+  - response
+  - reaction
+  - interest
+  - attention
+
+revenue:
+  - sales
+  - profit
+  - income
+  - earnings
+  - returns
+  - proceeds
+  - turnover
+  - monetization
+  - financial
+  - commercial
+  - economic
+  - business
+  - market
+  - money
+  - funds
+  - capital
+  - investment
+
+retention:
+  - retained
+  - kept
+  - maintained
+  - preserved
+  - sustained
+  - continued
+  - persisted
+  - endured
+  - lasted
+  - remained
+  - stayed
+  - loyal
+  - committed
+  - dedicated
+  - devoted
+  - faithful
+  - consistent
+
+scalability:
+  - scaled
+  - expanded
+  - grew
+  - extended
+  - enlarged
+  - increased
+  - amplified
+  - multiplied
+  - proliferated
+  - spread
+  - broadened
+  - widened
+  - heightened
+  - intensified
+  - magnified
+  - elevated
+  - raised
+
+operational_efficiency:
+  - streamlined
+  - optimized
+  - improved
+  - enhanced
+  - upgraded
+  - refined
+  - polished
+  - perfected
+  - automated
+  - mechanized
+  - systematized
+  - organized
+  - structured
+  - arranged
+  - coordinated
+  - synchronized
+  - harmonized
+
+compliance:
+  - compliant
+  - adherent
+  - conforming
+  - following
+  - observing
+  - abiding
+  - obeying
+  - respecting
+  - honoring
+  - upholding
+  - maintaining
+  - fulfilling
+  - satisfying
+  - meeting
+  - achieving
+  - attaining
+  - reaching
+
+innovation:
+  - innovative
+  - novel
+  - new
+  - original
+  - creative
+  - inventive
+  - groundbreaking
+  - pioneering
+  - trailblazing
+  - cutting-edge
+  - leading-edge
+  - state-of-the-art
+  - advanced
+  - progressive
+  - forward-thinking
+  - revolutionary
+  - transformative
+
+platform_thinking:
+  - ecosystem
+  - network
+  - community
+  - marketplace
+  - environment
+  - infrastructure
+  - foundation
+  - architecture
+  - framework
+  - structure
+  - system
+  - organization
+  - arrangement
+  - configuration
+  - design
+  - layout
+  - blueprint
+
+# Team & People
+mentorship:
+  - mentored
+  - coached
+  - guided
+  - advised
+  - counseled
+  - taught
+  - instructed
+  - trained
+  - educated
+  - developed
+  - nurtured
+  - fostered
+  - cultivated
+  - groomed
+  - supported
+  - helped
+  - assisted
+
+hiring_onboarding:
+  - recruited
+  - hired
+  - employed
+  - engaged
+  - appointed
+  - selected
+  - chosen
+  - picked
+  - onboarded
+  - oriented
+  - introduced
+  - integrated
+  - incorporated
+  - assimilated
+  - acclimated
+  - familiarized
+  - acquainted
+
+culture_building:
+  - culture
+  - environment
+  - atmosphere
+  - climate
+  - ethos
+  - spirit
+  - morale
+  - attitude
+  - mindset
+  - perspective
+  - outlook
+  - approach
+  - philosophy
+  - principles
+  - values
+  - beliefs
+  - traditions
+
+remote_collaboration:
+  - remote
+  - virtual
+  - digital
+  - online
+  - electronic
+  - web-based
+  - internet-based
+  - cloud-based
+  - distributed
+  - decentralized
+  - dispersed
+  - scattered
+  - spread
+  - distant
+  - far-flung
+  - global
+  - international
+
+conflict_resolution:
+  - resolved
+  - settled
+  - solved
+  - fixed
+  - addressed
+  - handled
+  - managed
+  - dealt with
+  - processed
+  - negotiated
+  - mediated
+  - arbitrated
+  - reconciled
+  - harmonized
+  - pacified
+  - appeased
+  - placated
+
+# Industry & Domain
+open_knowledge:
+  - open
+  - free
+  - accessible
+  - available
+  - attainable
+  - obtainable
+  - reachable
+  - knowledge
+  - information
+  - data
+  - facts
+  - details
+  - particulars
+  - specifics
+  - intelligence
+  - insight
+  - understanding
+
+education:
+  - educational
+  - academic
+  - scholastic
+  - instructional
+  - pedagogical
+  - teaching
+  - learning
+  - training
+  - development
+  - growth
+  - improvement
+  - advancement
+  - progress
+  - evolution
+  - transformation
+  - change
+  - shift
+
+health_tech:
+  - healthcare
+  - medical
+  - clinical
+  - therapeutic
+  - treatment
+  - care
+  - wellness
+  - wellbeing
+  - fitness
+  - health
+  - healthtech
+  - medtech
+  - biotech
+  - life sciences
+  - pharmaceutical
+  - medicine
+  - diagnosis
+
+fintech:
+  - financial
+  - monetary
+  - fiscal
+  - economic
+  - commercial
+  - business
+  - corporate
+  - banking
+  - investment
+  - trading
+  - payment
+  - transaction
+  - exchange
+  - transfer
+  - currency
+  - money
+  - cash
+
+government_services:
+  - government
+  - public
+  - state
+  - federal
+  - national
+  - municipal
+  - local
+  - civic
+  - civil
+  - administrative
+  - bureaucratic
+  - official
+  - authorized
+  - legal
+  - legitimate
+  - lawful
+  - regulated
+
+ngos_nonprofit:
+  - ngo
+  - nonprofit
+  - not-for-profit
+  - charitable
+  - philanthropic
+  - humanitarian
+  - benevolent
+  - altruistic
+  - generous
+  - giving
+  - donating
+  - contributing
+  - supporting
+  - helping
+  - assisting
+  - aiding
+  - benefiting
+
+security_privacy:
+  - secure
+  - protected
+  - safeguarded
+  - defended
+  - shielded
+  - guarded
+  - private
+  - confidential
+  - classified
+  - restricted
+  - limited
+  - exclusive
+  - personal
+  - individual
+  - secret
+  - hidden
+  - concealed
+
+developer_tools:
+  - development
+  - programming
+  - coding
+  - engineering
+  - technical
+  - technological
+  - digital
+  - electronic
+  - computerized
+  - automated
+  - mechanized
+  - systematic
+  - methodical
+  - organized
+  - structured
+  - arranged
+  - designed
+
+media_creativity:
+  - media
+  - creative
+  - artistic
+  - imaginative
+  - inventive
+  - innovative
+  - original
+  - unique
+  - distinctive
+  - special
+  - exceptional
+  - extraordinary
+  - remarkable
+  - outstanding
+  - notable
+  - significant
+  - important
+
+# Values & Themes
+equity_inclusion:
+  - equitable
+  - fair
+  - just
+  - impartial
+  - unbiased
+  - objective
+  - neutral
+  - balanced
+  - inclusive
+  - diverse
+  - varied
+  - assorted
+  - mixed
+  - heterogeneous
+  - multicultural
+  - multiethnic
+  - multilingual
+
+ethical_tech:
+  - ethical
+  - moral
+  - principled
+  - virtuous
+  - righteous
+  - good
+  - decent
+  - honorable
+  - honest
+  - trustworthy
+  - reliable
+  - dependable
+  - responsible
+  - accountable
+  - answerable
+  - liable
+  - obligated
+
+community_building:
+  - community
+  - society
+  - public
+  - people
+  - population
+  - citizens
+  - residents
+  - inhabitants
+  - dwellers
+  - occupants
+  - locals
+  - natives
+  - aboriginals
+  - indigenous
+  - autochthonous
+  - endemic
+  - domestic
+
+sustainability:
+  - sustainable
+  - renewable
+  - recyclable
+  - reusable
+  - biodegradable
+  - eco-friendly
+  - environmentally friendly
+  - green
+  - clean
+  - natural
+  - organic
+  - biological
+  - ecological
+  - environmental
+  - conservational
+  - preservational
+  - protective
+
+mission_driven:
+  - mission
+  - purpose
+  - goal
+  - objective
+  - aim
+  - target
+  - intention
+  - design
+  - plan
+  - scheme
+  - strategy
+  - tactic
+  - approach
+  - method
+  - technique
+  - procedure
+  - process
+
+accessibility:
+  - accessible
+  - available
+  - obtainable
+  - attainable
+  - reachable
+  - approachable
+  - usable
+  - functional
+  - operational
+  - practical
+  - convenient
+  - handy
+  - useful
+  - helpful
+  - beneficial
+  - advantageous
+  - favorable
+
+global_perspective:
+  - global
+  - worldwide
+  - international
+  - universal
+  - planetary
+  - earthly
+  - terrestrial
+  - worldly
+  - cosmic
+  - celestial
+  - astronomical
+  - galactic
+  - interstellar
+  - intergalactic
+  - extraterrestrial
+  - alien
+  - foreign
+
+trust_safety:
+  - trustworthy
+  - reliable
+  - dependable
+  - safe
+  - secure
+  - protected
+  - sheltered
+  - guarded
+  - defended
+  - shielded
+  - covered
+  - insured
+  - guaranteed
+  - warranted
+  - certified
+  - validated
+  - verified
