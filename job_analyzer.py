@@ -15,6 +15,8 @@ import spacy
 import yaml
 import ollama
 import requests
+import argparse
+import subprocess
 from bs4 import BeautifulSoup
 from pathlib import Path
 from datetime import datetime
@@ -22,6 +24,8 @@ from spacy_utils import prioritize_tags_for_job
 
 # Output file for storing analyzed jobs
 ANALYZED_JOBS_FILE = "analyzed_jobs.json"
+# Default LLM model to use
+DEFAULT_LLM_MODEL = "deepseek-r1:8b"
 
 def load_categories(yaml_file):
     """Load categories from a YAML file."""
@@ -110,7 +114,7 @@ def extract_main_content(html_content):
     # Fallback: just get all text
     return soup.get_text(separator="\n\n", strip=True)
 
-def analyze_job_posting(url, job_text, categories):
+def analyze_job_posting(url, job_text, categories, llm_model=DEFAULT_LLM_MODEL):
     """
     Analyze a job posting using spaCy for tag analysis and Ollama for basic info extraction.
     
@@ -118,6 +122,7 @@ def analyze_job_posting(url, job_text, categories):
         url (str): URL of the job posting
         job_text (str): Extracted job posting text
         categories (dict): Categories from YAML file
+        llm_model (str): Name of the Ollama model to use
         
     Returns:
         dict: Analyzed job data
@@ -139,7 +144,8 @@ SUMMARY: [One sentence summary]
 """
         
         # Get basic job info
-        response = ollama.generate(model="deepseek-r1:8b", prompt=job_info_prompt)
+        print(f"Using LLM model: {llm_model}")
+        response = ollama.generate(model=llm_model, prompt=job_info_prompt)
         job_info_completion = ""
         for chunk in response:
             if isinstance(chunk, tuple) and chunk[0] == "response":
@@ -160,6 +166,7 @@ SUMMARY: [One sentence summary]
                 summary = line.replace('SUMMARY:', '').strip()
         
         # Use spaCy-based approach to generate prioritized tags
+        print("Using spaCy for tag analysis")
         prioritized_tags = prioritize_tags_for_job(job_text, categories)
         
         # Create job data structure
@@ -171,7 +178,8 @@ SUMMARY: [One sentence summary]
             "date_scraped": datetime.now().isoformat(),
             "summary": summary,
             "tags": prioritized_tags,
-            "raw_text": job_text
+            "raw_text": job_text,
+            "llm_model": llm_model  # Store which model was used for this analysis
         }
         
         return job_data
@@ -221,38 +229,39 @@ def save_job_data(job_data, output_file=ANALYZED_JOBS_FILE):
         print(f"Error saving job data: {e}")
         return False
 
-def analyze_job_from_url(url):
+def analyze_job_from_url(url, llm_model=DEFAULT_LLM_MODEL):
     """
     Main function to analyze a job posting from a URL.
     
     Args:
         url (str): URL of the job posting
+        llm_model (str): Name of the Ollama model to use
         
     Returns:
         bool: True if successful, False otherwise
     """
-    # Load categories
-    categories = load_categories("categories.yaml")
+    # Load categories from YAML
+    categories = load_categories("category_expansions.yaml")
     if not categories:
-        print("Failed to load categories. Cannot analyze job posting.")
+        print("Failed to load categories. Aborting.")
         return False
     
     # Fetch job posting
-    job_text, _ = fetch_job_posting(url)
+    job_text, html_content = fetch_job_posting(url)
     if not job_text:
-        print("Failed to fetch job posting content.")
+        print("Failed to fetch job posting. Aborting.")
         return False
     
     # Analyze job posting
-    job_data = analyze_job_posting(url, job_text, categories)
+    job_data = analyze_job_posting(url, job_text, categories, llm_model)
     if not job_data:
-        print("Failed to analyze job posting.")
+        print("Failed to analyze job posting. Aborting.")
         return False
     
     # Save job data
-    success = save_job_data(job_data)
+    save_job_data(job_data)
     
-    return success
+    return True
 
 def display_job_analysis(job_data):
     """
@@ -264,6 +273,10 @@ def display_job_analysis(job_data):
     print("\n" + "="*80)
     print(f"JOB ANALYSIS: {job_data['job_title']} at {job_data['org_name']}")
     print("="*80)
+    
+    # Display which LLM model was used
+    llm_model = job_data.get('llm_model', 'unknown model')
+    print(f"\nANALYZED WITH: {llm_model}")
     
     print(f"\nSUMMARY: {job_data['summary']}")
     print(f"\nURL: {job_data['url']}")
@@ -285,27 +298,128 @@ def display_job_analysis(job_data):
     print("\nSaved to:", ANALYZED_JOBS_FILE)
     print("="*80 + "\n")
 
+def run_multi_llm_analysis(url, llm_models):
+    """
+    Run job analysis using multiple LLM models and compare results.
+    
+    Args:
+        url (str): URL of the job posting
+        llm_models (list): List of LLM models to use
+        
+    Returns:
+        dict: Dictionary mapping model names to job data
+    """
+    results = {}
+    
+    for model in llm_models:
+        print(f"\n===== Running analysis with {model} =====")
+        if analyze_job_from_url(url, model):
+            # Load the saved data to display
+            with open(ANALYZED_JOBS_FILE, 'r') as f:
+                data = json.load(f)
+            
+            # Find the job we just analyzed
+            for job in data["jobs"]:
+                if job["url"] == url and job.get("llm_model") == model:
+                    display_job_analysis(job)
+                    results[model] = job
+                    break
+        else:
+            print(f"Analysis with {model} failed.")
+    
+    return results
+
+def compare_llm_results(results):
+    """
+    Compare results from different LLM models.
+    
+    Args:
+        results (dict): Dictionary mapping model names to job data
+    """
+    if not results:
+        print("No results to compare.")
+        return
+    
+    print("\n" + "="*80)
+    print("LLM MODEL COMPARISON RESULTS")
+    print("="*80)
+    
+    # Compare job titles
+    print("\nJOB TITLE COMPARISON:")
+    for model, job_data in results.items():
+        print(f"  {model}: {job_data['job_title']}")
+    
+    # Compare organizations
+    print("\nORGANIZATION COMPARISON:")
+    for model, job_data in results.items():
+        print(f"  {model}: {job_data['org_name']}")
+    
+    # Compare summaries
+    print("\nSUMMARY COMPARISON:")
+    for model, job_data in results.items():
+        print(f"  {model}: {job_data['summary']}")
+    
+    # Compare tag counts
+    print("\nTAG COUNT COMPARISON:")
+    for model, job_data in results.items():
+        high_count = len(job_data['tags'].get('high_priority', []))
+        medium_count = len(job_data['tags'].get('medium_priority', []))
+        low_count = len(job_data['tags'].get('low_priority', []))
+        print(f"  {model}: High={high_count}, Medium={medium_count}, Low={low_count}")
+    
+    print("\n" + "="*80)
+
 if __name__ == "__main__":
     import sys
     
-    if len(sys.argv) < 2:
-        print("Usage: python job_analyzer.py <job_posting_url>")
+    parser = argparse.ArgumentParser(description="Analyze job postings with different LLM models")
+    parser.add_argument("url", nargs="?", help="URL of the job posting to analyze")
+    parser.add_argument("--llm", "--model", dest="llm_model", default=DEFAULT_LLM_MODEL,
+                        help=f"LLM model to use (default: {DEFAULT_LLM_MODEL})")
+    parser.add_argument("--multi-llm", "--models", dest="llm_models", nargs="+",
+                        help="Run analysis with multiple LLM models and compare results")
+    parser.add_argument("--list-models", action="store_true",
+                        help="List available Ollama models and exit")
+    
+    args = parser.parse_args()
+    
+    if args.list_models:
+        try:
+            # Use the run_command tool to list Ollama models
+            result = subprocess.run(["ollama", "list"], capture_output=True, text=True)
+            print("Available Ollama models:")
+            print(result.stdout)
+            sys.exit(0)
+        except Exception as e:
+            print(f"Error listing models: {e}")
+            sys.exit(1)
+    
+    if not args.url:
+        parser.print_help()
+        print("\nError: URL is required unless using --list-models")
         sys.exit(1)
     
-    url = sys.argv[1]
+    url = args.url
     print(f"Analyzing job posting at: {url}")
     
-    if analyze_job_from_url(url):
-        # Load the saved data to display
-        with open(ANALYZED_JOBS_FILE, 'r') as f:
-            data = json.load(f)
-        
-        # Find the job we just analyzed
-        for job in data["jobs"]:
-            if job["url"] == url:
-                display_job_analysis(job)
-                break
-        
-        print("Job analysis complete!")
+    if args.llm_models:
+        # Run analysis with multiple models
+        results = run_multi_llm_analysis(url, args.llm_models)
+        compare_llm_results(results)
+        print("Multi-model job analysis complete!")
     else:
-        print("Job analysis failed.")
+        # Run analysis with a single model
+        if analyze_job_from_url(url, args.llm_model):
+            # Load the saved data to display
+            with open(ANALYZED_JOBS_FILE, 'r') as f:
+                data = json.load(f)
+            
+            # Find the job we just analyzed
+            for job in data["jobs"]:
+                if job["url"] == url and job.get("llm_model", DEFAULT_LLM_MODEL) == args.llm_model:
+                    display_job_analysis(job)
+                    break
+            
+            print("Job analysis complete!")
+        else:
+            print("Job analysis failed.")

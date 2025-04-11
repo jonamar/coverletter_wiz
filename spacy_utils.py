@@ -393,7 +393,8 @@ def assign_tags_with_spacy(text: str, categories: Dict[str, List[str]], max_tags
 
 def prioritize_tags_for_job(job_text: str, categories: Dict[str, List[str]]) -> Dict[str, List[str]]:
     """
-    Analyze a job posting and prioritize tags into high, medium, and low priority.
+    Analyze a job posting and prioritize tags into high, medium, and low priority,
+    using the standardized category system.
     
     Args:
         job_text: Job posting text
@@ -402,62 +403,88 @@ def prioritize_tags_for_job(job_text: str, categories: Dict[str, List[str]]) -> 
     Returns:
         Dictionary with high_priority, medium_priority, and low_priority tag lists
     """
-    # Flatten all tags
-    all_tags = []
-    for category, tags in categories.items():
-        all_tags.extend(tags)
+    # Get expanded categories and reverse mapping
+    expanded_categories, term_to_category = get_expanded_categories(categories)
     
     # Process the job posting
     doc = nlp(job_text)
     
-    # Calculate scores for each tag
-    tag_scores = {}
-    for tag in all_tags:
-        # 1. Direct keyword matching (highest priority)
-        direct_match_score = 0
+    # Calculate scores for standardized categories (not raw terms)
+    category_scores = {}
+    
+    # Initialize scores for all standard tags
+    all_standard_tags = []
+    for category_tags in categories.values():
+        all_standard_tags.extend(category_tags)
+    
+    for tag in all_standard_tags:
+        category_scores[tag] = 0
+    
+    # Score each term in the expanded categories
+    for tag, expansion_terms in expanded_categories.items():
+        if tag not in category_scores:
+            continue  # Skip if not a standard tag
+            
+        # Check for direct matches of the tag itself
         if tag.lower() in job_text.lower():
-            # Count occurrences (more occurrences = higher importance)
             occurrences = job_text.lower().count(tag.lower())
-            direct_match_score = min(occurrences * 0.2, 1.0)  # Cap at 1.0
+            score_increase = min(occurrences * 0.3, 1.0)  # Increased weight for exact tag matches
+            category_scores[tag] += score_increase
         
-        # 2. Semantic similarity
+        # Check for matches of expansion terms
+        for term in expansion_terms:
+            if term.lower() in job_text.lower():
+                occurrences = job_text.lower().count(term.lower())
+                score_increase = min(occurrences * 0.2, 0.8)  # Slightly lower weight for expansion terms
+                category_scores[tag] += score_increase
+    
+    # Add semantic similarity scores for each category
+    for tag in category_scores.keys():
         tag_doc = nlp(tag)
-        similarity_score = doc.similarity(tag_doc)
+        similarity_score = doc.similarity(tag_doc) * 0.3
+        category_scores[tag] += similarity_score
         
-        # 3. Location importance (tags in the first 1/3 of the document are often more important)
+        # Check for tag in first third of document (important location)
         first_third_text = job_text[:len(job_text)//3]
-        location_score = 0.5 if tag.lower() in first_third_text.lower() else 0
-        
-        # Combine scores with weights
-        combined_score = (
-            direct_match_score * 0.5 +
-            similarity_score * 0.3 +
-            location_score * 0.2
-        )
-        
-        tag_scores[tag] = combined_score
+        if tag.lower() in first_third_text.lower():
+            category_scores[tag] += 0.2
     
-    # Sort tags by score
-    sorted_tags = sorted(tag_scores.items(), key=lambda x: x[1], reverse=True)
+    # Sort categories by score
+    sorted_categories = sorted(category_scores.items(), key=lambda x: x[1], reverse=True)
     
-    # Split into priority levels - top 30% are high, middle 40% are medium, bottom 30% are low
-    # Ensure we get exactly 10 tags total
-    high_count = 3  # Get 3-4 high priority tags
-    medium_count = 4  # Get 3-4 medium priority tags
-    low_count = 3  # Get 2-3 low priority tags
+    # Filter out tags with very low scores
+    min_score_threshold = 0.1
+    relevant_categories = [(tag, score) for tag, score in sorted_categories if score > min_score_threshold]
     
-    all_prioritized_tags = sorted_tags[:high_count + medium_count + low_count]
+    # Determine thresholds based on the distribution of scores
+    if not relevant_categories:
+        return {"high_priority": [], "medium_priority": [], "low_priority": []}
     
-    # If we don't have enough tags, adjust the counts
-    if len(all_prioritized_tags) < high_count + medium_count + low_count:
-        available_count = len(all_prioritized_tags)
-        high_count = max(1, available_count // 3)
-        low_count = max(1, available_count // 3)
-        medium_count = available_count - high_count - low_count
+    max_score = relevant_categories[0][1]
+    high_threshold = max(0.5, max_score * 0.7)  # At least 70% of max score for high priority
+    medium_threshold = max(0.2, max_score * 0.4)  # At least 40% of max score for medium priority
     
-    high_priority = [tag for tag, score in all_prioritized_tags[:high_count]]
-    medium_priority = [tag for tag, score in all_prioritized_tags[high_count:high_count+medium_count]]
-    low_priority = [tag for tag, score in all_prioritized_tags[high_count+medium_count:]]
+    # Divide into priority levels based on scores
+    high_priority = [tag for tag, score in relevant_categories if score >= high_threshold]
+    medium_priority = [tag for tag, score in relevant_categories if medium_threshold <= score < high_threshold]
+    low_priority = [tag for tag, score in relevant_categories if min_score_threshold <= score < medium_threshold]
+    
+    # Limit to reasonable numbers if needed
+    high_priority = high_priority[:5]  # Max 5 high priority
+    medium_priority = medium_priority[:7]  # Max 7 medium priority
+    low_priority = low_priority[:5]  # Max 5 low priority
+    
+    # Ensure we have at least some tags in each category if possible
+    if not high_priority and relevant_categories:
+        high_priority = [relevant_categories[0][0]]
+        relevant_categories = relevant_categories[1:]
+    
+    if not medium_priority and relevant_categories:
+        medium_priority = [tag for tag, _ in relevant_categories[:min(2, len(relevant_categories))]]
+        relevant_categories = relevant_categories[min(2, len(relevant_categories)):]
+    
+    if not low_priority and relevant_categories:
+        low_priority = [tag for tag, _ in relevant_categories[:min(2, len(relevant_categories))]]
     
     return {
         "high_priority": high_priority,

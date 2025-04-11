@@ -23,6 +23,11 @@ Options:
     --low-weight FLOAT       Weight for low priority tag matches (default: 0.2)
     --multi-tag-bonus FLOAT  Bonus for each additional tag match (default: 0.1)
 
+    # LLM model selection:
+    --llm, --model STR       LLM model to use (default: gemma3:12b)
+    --multi-llm, --models STR  Run analysis with multiple LLM models and generate separate reports for each
+    --list-models            List available Ollama models and exit
+
 Examples:
     # List all available jobs
     python cover_letter_matcher.py --list
@@ -44,6 +49,9 @@ Examples:
     
     # Customize scoring weights
     python cover_letter_matcher.py --job-id 1 --high-weight 0.7 --medium-weight 0.4
+    
+    # List available Ollama models
+    python cover_letter_matcher.py --list-models
 """
 
 import json
@@ -55,6 +63,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Tuple, Set
 from collections import defaultdict
+import re
+import time
 
 # Constants
 JOBS_FILE = "analyzed_jobs.json"
@@ -72,7 +82,7 @@ SCORING_WEIGHTS = {
 
 # Ollama API settings
 OLLAMA_API_URL = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "deepseek-r1:8b"  # Using the same model as in job_analyzer.py
+DEFAULT_LLM_MODEL = "gemma3:12b"  # Default model, can be overridden via CLI
 
 def load_jobs(jobs_file: str) -> Dict:
     """Load job data from JSON file."""
@@ -306,7 +316,7 @@ def display_matches(job: Dict, matches: Dict) -> None:
     if total_matches > 10:
         print(f"...and {total_matches - 10} more matches. Generate a report to see all matches.")
 
-def query_ollama(prompt: str, model: str = OLLAMA_MODEL) -> str:
+def query_ollama(prompt: str, model: str = DEFAULT_LLM_MODEL) -> str:
     """
     Query the Ollama API with a prompt.
     
@@ -318,6 +328,7 @@ def query_ollama(prompt: str, model: str = OLLAMA_MODEL) -> str:
         The generated text
     """
     try:
+        print(f"Using LLM model: {model}")
         payload = {
             "model": model,
             "prompt": prompt,
@@ -333,7 +344,28 @@ def query_ollama(prompt: str, model: str = OLLAMA_MODEL) -> str:
         print(f"Error querying Ollama API: {e}")
         return f"Error: {e}"
 
-def generate_cover_letter(job: Dict, matches: Dict, print_prompt_only: bool = False) -> str:
+def clean_cover_letter(text: str) -> str:
+    """
+    Clean the cover letter text by removing 'think' sections and other artifacts.
+    
+    Args:
+        text: The raw cover letter text
+        
+    Returns:
+        Cleaned cover letter text
+    """
+    # Remove <think>...</think> sections
+    cleaned_text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    
+    # Remove any other potential artifacts or placeholders
+    cleaned_text = re.sub(r'\[Platform where you saw the advertisement\]', 'your job board', cleaned_text)
+    
+    # Clean up any excessive newlines
+    cleaned_text = re.sub(r'\n{3,}', '\n\n', cleaned_text)
+    
+    return cleaned_text.strip()
+
+def generate_cover_letter(job: Dict, matches: Dict, print_prompt_only: bool = False, model: str = DEFAULT_LLM_MODEL) -> str:
     """
     Generate a cover letter from matching sentences using Ollama.
     
@@ -341,72 +373,109 @@ def generate_cover_letter(job: Dict, matches: Dict, print_prompt_only: bool = Fa
         job: Job data
         matches: Dict with matched sentences
         print_prompt_only: If True, return the prompt instead of querying Ollama
+        model: The LLM model to use for generation
         
     Returns:
         str: Generated cover letter or prompt if print_prompt_only is True
     """
-    org_name = job.get("org_name", "the company")
-    job_title = job.get("job_title", "the position")
-    matches_list = matches.get("matches", [])
+    import time
+    start_time = time.time()
     
-    # Get top matching sentences (up to 15)
-    top_matches = matches_list[:15]
+    # Create an overview of the job for the LLM
+    job_overview = f"JOB TITLE: {job['job_title']}\nORGANIZATION: {job['org_name']}\nSUMMARY: {job['summary']}"
     
-    # Create a list of sentences with their ratings and tags
-    sentences_text = ""
-    for i, match in enumerate(top_matches, 1):
-        text = match.get("text", "")
-        rating = match.get("rating", 0)
-        tags = ", ".join(match.get("all_tags", []))
-        
-        # Add information about sentence groups
-        group_info = ""
-        if match.get("is_sentence_group", True):
-            group_info = " [SENTENCE GROUP]"
-        
-        sentences_text += f"Sentence {i}{group_info} (Rating: {rating}/10, Tags: {tags}):\n{text}\n\n"
+    # Add job tags
+    job_tags = "JOB TAGS:\n"
+    job_tags += "High Priority: " + ", ".join(job['tags'].get('high_priority', [])) + "\n"
+    job_tags += "Medium Priority: " + ", ".join(job['tags'].get('medium_priority', [])) + "\n"
+    job_tags += "Low Priority: " + ", ".join(job['tags'].get('low_priority', [])) + "\n"
     
-    # Get the job tags
-    high_priority = ", ".join(job.get("tags", {}).get("high_priority", []))
-    medium_priority = ", ".join(job.get("tags", {}).get("medium_priority", []))
-    low_priority = ", ".join(job.get("tags", {}).get("low_priority", []))
+    # Gather matched sentences by score
+    matched_sentences = []
     
-    # Create the prompt
-    prompt = f"""Your task is to write a concise yet compelling cover letter for {job_title} at {org_name}.
+    # Check if matches is a list or a dict with a different structure
+    if isinstance(matches, list):
+        # Handle the case where matches is a list
+        for match in matches:
+            if isinstance(match, dict) and match.get("score", 0) > 0:
+                matched_sentences.append({
+                    "text": match.get("text", ""),
+                    "score": match.get("score", 0),
+                    "is_group": match.get("is_sentence_group", False)
+                })
+    elif "matches" in matches:
+        # Handle the case where matches has a "matches" key containing a list
+        for match in matches.get("matches", []):
+            if isinstance(match, dict) and match.get("score", 0) > 0:
+                matched_sentences.append({
+                    "text": match.get("text", ""),
+                    "score": match.get("score", 0),
+                    "is_group": match.get("is_sentence_group", False)
+                })
+    else:
+        # Handle the case where matches is a dict mapping sentence text to match data
+        for match_text, match_data in matches.items():
+            if isinstance(match_data, dict) and match_data.get("score", 0) > 0:
+                matched_sentences.append({
+                    "text": match_text,
+                    "score": match_data.get("score", 0),
+                    "is_group": match_data.get("is_sentence_group", False)
+                })
+    
+    # Sort sentences by score (highest first)
+    matched_sentences.sort(key=lambda x: x.get("score", 0), reverse=True)
+    
+    # Select top sentences (limit to 15)
+    top_sentences = matched_sentences[:15]
+    
+    # Prepare the sentence list for the prompt
+    sentence_list = ""
+    for i, sent in enumerate(top_sentences, 1):
+        group_indicator = " (GROUP)" if sent.get("is_group", False) else ""
+        sentence_list += f"{i}. (Score: {sent.get('score', 0):.2f}){group_indicator} {sent.get('text', '')}\n\n"
+    
+    # Create the improved prompt with emphasis on specific achievements
+    prompt = f"""You are an expert cover letter writer. I need you to create a professional cover letter based on the following job information and my best sentences from previous cover letters that match this job's requirements:
 
-The job's key requirements are:
-- High priority: {high_priority}
-- Medium priority: {medium_priority}
-- Low priority: {low_priority}
+{job_overview}
 
-Use the following pre-written sentences (and sentence groups) as the primary content, reorganizing and connecting them into a cohesive cover letter:
+{job_tags}
 
-{sentences_text}
+MY BEST MATCHING SENTENCES (already sorted by relevance):
+{sentence_list}
 
-Guidelines:
-1. Use ONLY the provided sentences - do not invent new content
-2. Organize the content logically, connecting sentences with smooth transitions
-3. Maintain the first-person perspective throughout
-4. Add a brief, generic introduction and conclusion
-5. Keep the cover letter to 2-3 paragraphs
-6. Focus on high-priority job requirements
-7. Ensure the cover letter is professional and position-focused
+Please create a cohesive, professional cover letter using these sentences where appropriate. The cover letter should:
+1. Have a proper greeting, introduction, body, and conclusion
+2. Incorporate the provided sentences when they fit naturally, but rewrite or adapt them as needed
+3. Add transitions and additional content to make the letter flow logically
+4. Focus on how my skills and experience match the job requirements
+5. Emphasize SPECIFIC ACHIEVEMENTS related to the high priority job tags
+6. Include concrete examples of past work that demonstrate my capabilities
+7. Keep the total length to about 300-400 words
+8. Do not mention scores, rankings, or that sentences were provided to you
+9. Sound natural and not repetitive
+10. DO NOT include any "think" sections or notes to yourself in the output
 
-Output just the cover letter text without explanation.
+Write the complete cover letter from scratch, but incorporate my best sentences as appropriate. Format it as a proper business letter with address blocks, date, greeting, and signature.
 """
     
     if print_prompt_only:
         return prompt
     
-    try:
-        # Query the Ollama API
-        generated_text = query_ollama(prompt)
-        return generated_text
-    except Exception as e:
-        print(f"Error generating cover letter: {e}")
-        return "Error generating cover letter. Please try again later."
+    # Query Ollama for the cover letter
+    generated_text = query_ollama(prompt, model)
+    
+    # Clean the generated text
+    cleaned_text = clean_cover_letter(generated_text)
+    
+    # Calculate and print the time taken
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    print(f"Cover letter generation time with {model}: {elapsed_time:.2f} seconds")
+    
+    return cleaned_text
 
-def generate_markdown_report(job: Dict, matches: Dict, include_cover_letter: bool = False, print_prompt_only: bool = False) -> str:
+def generate_markdown_report(job: Dict, matches: Dict, include_cover_letter: bool = False, print_prompt_only: bool = False, model: str = DEFAULT_LLM_MODEL) -> str:
     """
     Generate a markdown report for the job matches.
     
@@ -415,6 +484,7 @@ def generate_markdown_report(job: Dict, matches: Dict, include_cover_letter: boo
         matches: Dict with matched sentences
         include_cover_letter: Whether to include a cover letter draft
         print_prompt_only: If True, print the prompt instead of generating a cover letter
+        model: The LLM model to use for generation
         
     Returns:
         str: Markdown content
@@ -493,11 +563,11 @@ def generate_markdown_report(job: Dict, matches: Dict, include_cover_letter: boo
         md_content += "## Cover Letter Draft\n\n"
         
         if print_prompt_only:
-            prompt = generate_cover_letter(job, matches, print_prompt_only=True)
+            prompt = generate_cover_letter(job, matches, print_prompt_only=True, model=model)
             md_content += "### LLM Prompt\n\n"
             md_content += f"```\n{prompt}\n```\n\n"
         else:
-            cover_letter = generate_cover_letter(job, matches)
+            cover_letter = generate_cover_letter(job, matches, model=model)
             md_content += cover_letter + "\n\n"
     
     # Add footer
@@ -506,7 +576,7 @@ def generate_markdown_report(job: Dict, matches: Dict, include_cover_letter: boo
     
     return md_content
 
-def save_markdown_report(job: Dict, matches: Dict, include_cover_letter: bool = False, print_prompt_only: bool = False) -> str:
+def save_markdown_report(job: Dict, matches: Dict, include_cover_letter: bool = False, print_prompt_only: bool = False, model: str = DEFAULT_LLM_MODEL) -> str:
     """
     Save a markdown report for the job matches.
     
@@ -515,6 +585,7 @@ def save_markdown_report(job: Dict, matches: Dict, include_cover_letter: bool = 
         matches: Dict with matched sentences
         include_cover_letter: Whether to include a cover letter draft
         print_prompt_only: If True, print the prompt instead of generating a cover letter
+        model: The LLM model to use for generation
         
     Returns:
         str: Path to the saved report
@@ -522,18 +593,25 @@ def save_markdown_report(job: Dict, matches: Dict, include_cover_letter: bool = 
     # Create reports directory if it doesn't exist
     os.makedirs(REPORTS_DIR, exist_ok=True)
     
-    # Generate filename from org name and job title
+    # Generate report content
+    report_content = generate_markdown_report(job, matches, include_cover_letter, print_prompt_only, model)
+    
+    # Create a filename based on job details
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    job_name = job['job_title'].lower().replace(' ', '-')
     org_name = job['org_name'].lower().replace(' ', '-')
-    job_title = job['job_title'].lower().replace(' ', '-')
-    filename = f"{org_name}-{job_title}-{job['id']}.md"
+    model_name = model.replace(':', '-')  # Replace colons with hyphens for filename safety
+    
+    if include_cover_letter:
+        filename = f"{timestamp}_{job_name}_{org_name}_{model_name}_with_cover_letter.md"
+    else:
+        filename = f"{timestamp}_{job_name}_{org_name}_{model_name}.md"
+    
     filepath = os.path.join(REPORTS_DIR, filename)
     
-    # Generate markdown content
-    md_content = generate_markdown_report(job, matches, include_cover_letter, print_prompt_only)
-    
-    # Save to file
+    # Write the report to file
     with open(filepath, 'w') as f:
-        f.write(md_content)
+        f.write(report_content)
     
     return filepath
 
@@ -544,6 +622,116 @@ def list_available_jobs(jobs_data: Dict) -> None:
     for job in jobs_data.get("jobs", []):
         print(f"Job #{job['id']}: {job['job_title']} at {job['org_name']}")
     print("-"*80)
+
+def list_available_llm_models():
+    """List all available Ollama models."""
+    try:
+        import subprocess
+        result = subprocess.run(["ollama", "list"], capture_output=True, text=True)
+        print("Available Ollama models:")
+        print(result.stdout)
+    except Exception as e:
+        print(f"Error listing models: {e}")
+
+def run_multi_model_analysis(job_id: int, models: List[str], report: bool = False, 
+                            cover_letter: bool = False, print_prompt: bool = False) -> None:
+    """
+    Run the cover letter matcher with multiple LLM models and generate separate reports.
+    
+    Args:
+        job_id: Sequential ID of the job to analyze
+        models: List of LLM models to use
+        report: Whether to generate markdown reports
+        cover_letter: Whether to include cover letter drafts
+        print_prompt: Whether to print prompts instead of generating cover letters
+    """
+    import time
+    
+    # Load job data
+    try:
+        jobs_data = load_jobs(JOBS_FILE)
+        # Update job IDs to be sequential
+        jobs_data = update_job_ids(jobs_data)
+    except Exception as e:
+        print(f"Error loading job data: {e}")
+        return
+    
+    # Find the job with the specified ID
+    target_job = None
+    for job in jobs_data.get("jobs", []):
+        if job.get("id") == job_id:
+            target_job = job
+            break
+    
+    if not target_job:
+        print(f"No job found with ID {job_id}")
+        list_available_jobs(jobs_data)
+        return
+    
+    # Load sentence data
+    try:
+        sentences_data = load_sentences(SENTENCES_FILE)
+    except Exception as e:
+        print(f"Error loading sentence data: {e}")
+        return
+    
+    # Get all rated sentences
+    all_sentences = get_all_rated_sentences(sentences_data)
+    
+    # Find matching sentences
+    matches = find_matching_sentences(target_job, all_sentences)
+    
+    # Run analysis with each model
+    report_paths = []
+    timing_results = []
+    
+    for model in models:
+        print(f"\n{'='*40}")
+        print(f"RUNNING WITH MODEL: {model}")
+        print(f"{'='*40}")
+        
+        start_time = time.time()
+        
+        if report:
+            report_path = save_markdown_report(target_job, matches, cover_letter, print_prompt, model)
+            report_paths.append((model, report_path))
+            print(f"Report generated: {report_path}")
+        elif print_prompt and cover_letter:
+            prompt = generate_cover_letter(target_job, matches, print_prompt_only=True, model=model)
+            print("\nLLM PROMPT FOR COVER LETTER GENERATION:")
+            print("="*80)
+            print(prompt)
+            print("="*80)
+        elif cover_letter:
+            cover_letter_text = generate_cover_letter(target_job, matches, model=model)
+            print(f"\nGENERATED COVER LETTER WITH {model}:")
+            print("="*80)
+            print(cover_letter_text)
+            print("="*80)
+        else:
+            print(f"Model {model} - No output requested (use --report or --cover-letter)")
+        
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        timing_results.append((model, elapsed_time))
+        print(f"Total processing time for {model}: {elapsed_time:.2f} seconds")
+    
+    # Print summary of reports
+    if report and report_paths:
+        print("\nSUMMARY OF GENERATED REPORTS:")
+        print("="*80)
+        for model, path in report_paths:
+            print(f"Model: {model} - Report: {path}")
+        print("="*80)
+    
+    # Print timing summary
+    print("\nTIMING SUMMARY:")
+    print("="*80)
+    for model, elapsed_time in timing_results:
+        print(f"Model: {model} - Total time: {elapsed_time:.2f} seconds")
+    print("="*80)
+    
+    print(f"\nCompleted multi-model analysis for Job #{job_id}: {target_job['job_title']} at {target_job['org_name']}")
 
 def main():
     """Main function to run the cover letter matcher."""
@@ -560,7 +748,20 @@ def main():
     parser.add_argument("--low-weight", type=float, help=f"Weight for low priority matches (default: {SCORING_WEIGHTS['low_priority_match']})")
     parser.add_argument("--multi-tag-bonus", type=float, help=f"Bonus for each additional tag match (default: {SCORING_WEIGHTS['multi_tag_bonus']})")
     
+    # Add arguments for LLM model selection
+    parser.add_argument("--llm", "--model", dest="llm_model", default=DEFAULT_LLM_MODEL,
+                        help=f"LLM model to use (default: {DEFAULT_LLM_MODEL})")
+    parser.add_argument("--multi-llm", "--models", dest="llm_models", nargs="+",
+                        help="Run analysis with multiple LLM models and generate separate reports for each")
+    parser.add_argument("--list-models", action="store_true", 
+                        help="List available Ollama models and exit")
+    
     args = parser.parse_args()
+    
+    # List available LLM models if requested
+    if args.list_models:
+        list_available_llm_models()
+        return
     
     # Update scoring weights if provided
     if args.high_weight is not None:
@@ -593,6 +794,11 @@ def main():
         print("\nUse --job-id <ID> to analyze a specific job")
         return
     
+    # Check if multi-model analysis is requested
+    if args.llm_models:
+        run_multi_model_analysis(args.job_id, args.llm_models, args.report, args.cover_letter, args.print_prompt)
+        return
+    
     # Find the job with the specified ID
     target_job = None
     for job in jobs_data.get("jobs", []):
@@ -620,14 +826,21 @@ def main():
     
     # Generate report if requested or display matches
     if args.report:
-        report_path = save_markdown_report(target_job, matches, args.cover_letter, args.print_prompt)
+        report_path = save_markdown_report(target_job, matches, args.cover_letter, args.print_prompt, args.llm_model)
         print(f"\nReport generated: {report_path}")
     # If just print-prompt is requested (without report), print the prompt to terminal
     elif args.print_prompt and args.cover_letter:
-        prompt = generate_cover_letter(target_job, matches, print_prompt_only=True)
+        prompt = generate_cover_letter(target_job, matches, print_prompt_only=True, model=args.llm_model)
         print("\nLLM PROMPT FOR COVER LETTER GENERATION:")
         print("="*80)
         print(prompt)
+        print("="*80)
+    # If just cover-letter is requested (without report), generate and display the cover letter
+    elif args.cover_letter and not args.report:
+        cover_letter = generate_cover_letter(target_job, matches, model=args.llm_model)
+        print("\nGENERATED COVER LETTER:")
+        print("="*80)
+        print(cover_letter)
         print("="*80)
     else:
         display_matches(target_job, matches)
@@ -639,6 +852,8 @@ def main():
         print(f"To include a cover letter draft in the report, add the --cover-letter flag")
     if not args.print_prompt and (args.report or args.cover_letter):
         print(f"To print the LLM prompt instead of generating a cover letter, add the --print-prompt flag")
+    if args.cover_letter:
+        print(f"LLM model used: {args.llm_model}")
 
 if __name__ == "__main__":
     main()
