@@ -1,6 +1,8 @@
 # Cover Letter Wizard
 
-A comprehensive system for managing, rating, and matching cover letter content to job requirements. This tool helps you create better cover letters by analyzing your existing content and matching it to job postings.
+CoverLetter Wiz is an AI-powered tool that helps you improve and evolve your job application materials—especially cover letters—over time. Instead of treating editing as a linear process, the tool supports a more organic, granular workflow. It lets you identify, compare, and refine individual segments of your text—like sentences or paragraphs—while preserving the results of earlier refinements and insights.
+
+Built on natural language processing (NLP) techniques like named entity recognition (NER), noun chunk extraction, and pattern-based keyword detection, CoverLetter Wiz turns unstructured text into structured insights. It primarily relies on spaCy and local LLMs via Ollama to accomplish these tasks. These insights help surface key themes, skills, and phrases that matter to both you and potential employers—so you can focus your improvements on what’s most relevant.
 
 ## System Overview
 

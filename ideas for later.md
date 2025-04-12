@@ -8,3 +8,7 @@ Progress Indicators: The CLI doesn't show progress for long-running operations (
 Command History/Resumption: No ability to resume interrupted operations or track command history
 Interactive Selection: The CLI could be enhanced with interactive selection for models and jobs rather than requiring IDs
 Color and Formatting: Terminal output lacks color highlighting and formatting that would make results easier to scan
+
+
+How do I edit the list of categories and the extended list? wikimedia, wmde, etc. baze. baze labs. and things like dei, diversity, equity, inclusion, and knowledge equity 
+
