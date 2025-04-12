@@ -16,25 +16,38 @@ Cover Letter Wizard integrates several key components:
 ```mermaid
 flowchart TD
     %% Data Stores
-    RawText[/"Text Archive\nRaw cover letter texts"/]
-    ContentDB[/"Content Database\ncover_letter_content.json"/]
-    JobDB[/"Job Database\nanalyzed_jobs.json"/]
-    Reports[/"Reports Directory\nMarkdown reports"/]
+    RawText[/"Text Archive
+Raw cover letter texts"/]
+    ContentDB[/"Content Database
+cover_letter_content.json"/]
+    JobDB[/"Job Database
+analyzed_jobs.json"/]
+    Reports[/"Reports Directory
+Markdown reports"/]
     
     %% Core Components
-    ContentProcessor["Content Processor\nExtract & rate content blocks"]
-    JobAnalyzer["Job Analyzer\nScrape & analyze job postings"]
-    ContentMatcher["Content Matcher\nMatch content to job requirements"]
+    ContentProcessor["Content Processor
+Extract & rate content blocks"]
+    JobAnalyzer["Job Analyzer
+Scrape & analyze job postings"]
+    ContentMatcher["Content Matcher
+Match content to job requirements"]
     
     %% User Interfaces
-    RateUI["Rate Content CLI\nBatch rating & tournaments"]
-    JobUI["Job Analysis CLI\nJob posting analysis"]
-    MatchUI["Match Content CLI\nContent matching & reports"]
-    MainUI["Main CLI\nUnified interface"]
+    RateUI["Rate Content CLI
+Batch rating & tournaments"]
+    JobUI["Job Analysis CLI
+Job posting analysis"]
+    MatchUI["Match Content CLI
+Content matching & reports"]
+    MainUI["Main CLI
+Unified interface"]
     
     %% External Services
-    SpaCy["spaCy\nNLP processing"]
-    LLM["Local LLM\nOllama"]
+    SpaCy["spaCy
+NLP processing"]
+    LLM["Local LLM
+Ollama"]
     
     %% Flow
     RawText --> ContentProcessor

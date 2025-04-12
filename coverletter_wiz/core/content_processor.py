@@ -622,7 +622,7 @@ class ContentProcessor:
             # Get user selection
             while True:
                 try:
-                    selection = input("\nBest content (1, 2, 'd' to vote both down, 's' to skip, 'e' to edit, 'q' to quit): ").strip().lower()
+                    selection = input("\nBest content (1, 2, 's' to skip, 'e' to edit, 'q' to quit): ").strip().lower()
                     
                     if selection == 'q':
                         self._save_ratings()
@@ -631,15 +631,6 @@ class ContentProcessor:
                         self._show_legends_blocks()
                         return "quit"  # Signal to completely exit the tournament
                     elif selection == 's':
-                        break
-                    elif selection == 'd':
-                        # In legends tournament, blocks don't lose points
-                        # Just mark this pair as compared
-                        if len(comparison_group) == 2:
-                            pair_id = self._get_pair_id(comparison_group[0], comparison_group[1])
-                            compared_pairs.add(pair_id)
-                        
-                        print("\nBoth blocks rated down (but legends don't lose points)!")
                         break
                     elif selection == 'e':
                         # Edit mode (placeholder)
@@ -673,7 +664,7 @@ class ContentProcessor:
                         print(f"\nRatings updated! Winner: {winner['text'][:100]}{'...' if len(winner['text']) > 100 else ''}")
                         break
                     else:
-                        print("Invalid selection. Please enter 1, 2, 'd', 's', 'e', or 'q'.")
+                        print("Invalid selection. Please enter 1, 2, 's', 'e', or 'q'.")
                 except ValueError:
                     print("Please enter a valid number or command.")
             

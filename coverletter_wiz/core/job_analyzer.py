@@ -22,7 +22,7 @@ import sys
 
 # Constants
 DEFAULT_OUTPUT_FILE = "data/json/analyzed_jobs.json"
-DEFAULT_LLM_MODEL = "deepseek-r1:8b"
+DEFAULT_LLM_MODEL = "gemma3:12b"
 
 class JobAnalyzer:
     """
