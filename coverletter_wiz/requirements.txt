@@ -1,0 +1,6 @@
+spacy>=3.6.0
+beautifulsoup4>=4.11.0
+requests>=2.27.1
+PyYAML>=6.0
+python-dotenv>=0.20.0
+ollama>=0.1.0
