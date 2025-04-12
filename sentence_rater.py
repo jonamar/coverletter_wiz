@@ -17,6 +17,7 @@ from typing import Dict, List, Tuple, Set, Optional
 from collections import defaultdict
 from datetime import datetime
 import uuid
+import time
 
 # Constants
 JSON_FILE = "processed_cover_letters.json"
@@ -30,6 +31,16 @@ TOURNAMENT_MAX_RATING = 10.0 # Maximum rating to be included in tournament
 TOURNAMENT_GROUP_SIZE = 2 # Number of sentences to compare in each tournament round
 TOURNAMENT_WIN_RATING_CHANGE = 1.0  # Rating adjustment amount for tournament winners
 TOURNAMENT_LOSE_RATING_CHANGE = 0.5 # Rating adjustment amount for tournament losers
+
+# Legends tournament constants
+LEGENDS_MIN_RATING = 10.0  # Minimum rating to be included in legends tournament
+LEGENDS_MAX_RATING = 12.0  # Maximum possible rating in legends tournament
+LEGENDS_WIN_RATING_CHANGE = 0.5  # Rating adjustment for legends winners (smaller to avoid inflation)
+LEGENDS_LOSE_RATING_CHANGE = 0.0  # Legends losers don't lose points
+
+# Category refinement constants
+CATEGORY_REFINED_THRESHOLD = 8.0  # Average rating threshold to consider a category "refined"
+CATEGORY_COMPLETION_THRESHOLD = 0.7  # Percentage of sentences above HIGH_RATING_THRESHOLD to consider "complete"
 
 class SentenceRater:
     """
@@ -53,6 +64,8 @@ class SentenceRater:
         self.rated_sentences = len([s for s in self.sentences if s.get("rating", 0) > 0])
         self.high_rated_sentences = len([s for s in self.sentences if s.get("rating", 0) >= HIGH_RATING_THRESHOLD])
         self.perfect_sentences = []  # Track sentences that reach a perfect score
+        self.legends_sentences = []  # Track sentences in the legends tournament
+        self.category_stats = {}     # Track category refinement statistics
         
     def _load_data(self) -> Dict:
         """Load the JSON file containing processed cover letters."""
@@ -393,60 +406,131 @@ class SentenceRater:
         
         print("=" * 40)
     
-    def run(self) -> None:
-        """Run the sentence rating process."""
-        print(f"Found {len(self.sentences)} unique sentences.")
+    def _show_category_status(self, show_all: bool = True) -> None:
+        """
+        Show a comprehensive view of all categories and their status.
         
-        # Check for unrated sentences
-        unrated_sentences = self._get_unrated_sentences()
-        if unrated_sentences:
-            print(f"Found {len(unrated_sentences)} unrated sentences.")
+        Args:
+            show_all: Whether to show all categories or only those with sentences
+        """
+        # Get categories and sentences
+        categories = self._get_categories_from_sentences()
         
-        # Show current status
-        if not unrated_sentences:
-            print("All sentences have been rated.")
-            self._show_stats()
+        # Combine regular and legends categories to get a complete picture
+        all_categories = set()
+        for category in list(categories["regular"].keys()) + list(categories["legends"].keys()):
+            all_categories.add(category)
+        
+        if not all_categories:
+            print("No categories found with rated sentences.")
+            return
+        
+        # Calculate overall stats
+        total_categories = len(all_categories)
+        refined_categories = sum(1 for cat, stats in categories["stats"].items() if stats["is_refined"])
+        categories_with_legends = sum(1 for cat in categories["legends"] if categories["legends"][cat])
+        
+        # Create a list of category stats for display
+        category_stats = []
+        for category in all_categories:
+            regular_count = len(categories["regular"].get(category, []))
+            legends_count = len(categories["legends"].get(category, []))
+            total_count = regular_count + legends_count
             
-            # After rating is complete, offer tournament mode
-            tournament_mode = input("Would you like to enter tournament mode to compare similar sentences? (y/n): ").lower().strip()
-            if tournament_mode == 'y':
-                self._run_tournament_mode()
-            else:
-                restart = input("Would you like to restart the rating process? (y/n): ").lower().strip()
-                if restart == 'y':
-                    for sentence in self.sentences:
-                        sentence["rating"] = 0
-                        sentence["batch_rating"] = False
-                    self._save_ratings()
+            # Skip empty categories if not showing all
+            if not show_all and total_count == 0:
+                continue
+                
+            # Get category stats
+            stats = categories["stats"].get(category, {})
+            avg_rating = stats.get("avg_rating", 0)
+            is_refined = stats.get("is_refined", False)
+            
+            # Determine status
+            if legends_count > 0:
+                if regular_count == 0:
+                    status = "Legendary"  # All sentences are legends
                 else:
-                    print("Showing final statistics:")
-                    self._show_stats()
-                    return
+                    status = "Advancing"  # Mix of regular and legends
+            elif is_refined:
+                status = "Refined"  # No legends but refined
+            else:
+                status = "In Progress"  # Regular work needed
+                
+            category_stats.append({
+                "category": category,
+                "regular_count": regular_count,
+                "legends_count": legends_count,
+                "total_count": total_count,
+                "avg_rating": avg_rating,
+                "status": status,
+                "is_refined": is_refined
+            })
         
-        # Run batch rating phase
-        self._run_batch_rating()
+        # Sort by status priority and then by total count (descending)
+        status_priority = {"In Progress": 0, "Refined": 1, "Advancing": 2, "Legendary": 3}
+        category_stats.sort(key=lambda x: (status_priority[x["status"]], -x["total_count"]))
         
-        # After batch rating is complete, offer tournament mode
-        tournament_mode = input("Would you like to enter tournament mode to compare similar sentences? (y/n): ").lower().strip()
-        if tournament_mode == 'y':
-            self._run_tournament_mode()
+        # Display the status table
+        print("\n" + "=" * 80)
+        print("CATEGORY STATUS OVERVIEW")
+        print("=" * 80)
+        print(f"Total Categories: {total_categories} | Refined: {refined_categories} | With Legends: {categories_with_legends}")
+        print("-" * 80)
+        print(f"{'Category':<25} {'Regular':<8} {'Legends':<8} {'Total':<6} {'Avg':<5} {'Status':<12}")
+        print("-" * 80)
         
-        # Show final stats
-        self._show_stats()
+        for stats in category_stats:
+            # Truncate long category names
+            category = stats["category"]
+            if len(category) > 22:
+                category = category[:19] + "..."
+                
+            # Color-code the status
+            status = stats["status"]
+            status_color = ""
+            if status == "Legendary":
+                status_color = "\033[92m"  # Green
+            elif status == "Advancing":
+                status_color = "\033[94m"  # Blue
+            elif status == "Refined":
+                status_color = "\033[93m"  # Yellow
+            else:
+                status_color = "\033[37m"  # White
+            
+            end_color = "\033[0m"
+            
+            print(f"{category:<25} {stats['regular_count']:<8} {stats['legends_count']:<8} "
+                  f"{stats['total_count']:<6} {stats['avg_rating']:.1f}  {status_color}{status:<12}{end_color}")
         
-    def _get_categories_from_sentences(self) -> Dict[str, List[Dict]]:
+        print("-" * 80)
+        print("Status Legend:")
+        print("  In Progress - Regular sentences that need more refinement")
+        print("  Refined     - Regular sentences with high average rating")
+        print("  Advancing   - Mix of regular and legend sentences")
+        print("  Legendary   - All sentences have reached legend status")
+        print("=" * 80)
+    
+    def _get_categories_from_sentences(self) -> Dict[str, Dict]:
         """
         Get a dictionary of categories mapped to sentences that have that tag.
-        Only includes sentences with ratings above TOURNAMENT_MIN_RATING.
+        Separates regular tournament sentences from legends sentences.
         
         Returns:
-            Dictionary mapping category names to lists of sentences
+            Dictionary with:
+            - 'regular': Dict mapping category names to lists of regular sentences
+            - 'legends': Dict mapping category names to lists of legends sentences
+            - 'stats': Dict with statistics for each category
         """
-        categories = {}
+        regular_categories = {}
+        legends_categories = {}
+        category_stats = {}
         
+        # First pass: collect all sentences by category
         for sentence in self.sentences:
             # Skip sentences with ratings below the threshold
-            if sentence.get("rating", 0) < TOURNAMENT_MIN_RATING:
+            rating = sentence.get("rating", 0)
+            if rating < TOURNAMENT_MIN_RATING:
                 continue
                 
             # Use primary_tags if available, otherwise use regular tags
@@ -461,11 +545,57 @@ class SentenceRater:
             
             # Add sentence to each of its categories
             for tag in tags_to_use:
-                if tag not in categories:
-                    categories[tag] = []
-                categories[tag].append(sentence)
+                # Determine if this is a legends sentence
+                is_legend = rating >= LEGENDS_MIN_RATING
+                
+                # Add to appropriate category dictionary
+                target_dict = legends_categories if is_legend else regular_categories
+                
+                if tag not in target_dict:
+                    target_dict[tag] = []
+                target_dict[tag].append(sentence)
+                
+                # Track this sentence for legends tournament if applicable
+                if is_legend and sentence not in self.legends_sentences:
+                    self.legends_sentences.append(sentence)
         
-        return categories
+        # Second pass: calculate statistics for each category
+        all_categories = set(list(regular_categories.keys()) + list(legends_categories.keys()))
+        
+        for category in all_categories:
+            regular_sents = regular_categories.get(category, [])
+            legends_sents = legends_categories.get(category, [])
+            all_sents = regular_sents + legends_sents
+            
+            if not all_sents:
+                continue
+                
+            # Calculate statistics
+            avg_rating = sum(s.get("rating", 0) for s in all_sents) / len(all_sents)
+            high_rated = sum(1 for s in all_sents if s.get("rating", 0) >= HIGH_RATING_THRESHOLD)
+            completion_ratio = high_rated / len(all_sents) if all_sents else 0
+            
+            # Determine if category is refined
+            is_refined = avg_rating >= CATEGORY_REFINED_THRESHOLD or completion_ratio >= CATEGORY_COMPLETION_THRESHOLD
+            
+            category_stats[category] = {
+                "avg_rating": avg_rating,
+                "total_sentences": len(all_sents),
+                "regular_count": len(regular_sents),
+                "legends_count": len(legends_sents),
+                "high_rated_count": high_rated,
+                "completion_ratio": completion_ratio,
+                "is_refined": is_refined
+            }
+        
+        # Store category stats for use elsewhere
+        self.category_stats = category_stats
+        
+        return {
+            "regular": regular_categories,
+            "legends": legends_categories,
+            "stats": category_stats
+        }
     
     def _run_tournament_mode(self) -> None:
         """Run the Apples to Apples tournament mode to compare similar sentences."""
@@ -473,48 +603,111 @@ class SentenceRater:
         print("APPLES TO APPLES TOURNAMENT MODE")
         print("=" * 40)
         print(f"Compare sentences rated {TOURNAMENT_MIN_RATING}+ to refine their ratings.")
-        print(f"Winner gets +{TOURNAMENT_WIN_RATING_CHANGE} points, loser loses {TOURNAMENT_LOSE_RATING_CHANGE} points.")
-        print(f"Sentences dropping below {TOURNAMENT_MIN_RATING} or reaching {TOURNAMENT_MAX_RATING} are removed from the tournament.")
+        print(f"Regular tournament: Winner gets +{TOURNAMENT_WIN_RATING_CHANGE} points, loser loses {TOURNAMENT_LOSE_RATING_CHANGE} points.")
+        print(f"Legends tournament: Winner gets +{LEGENDS_WIN_RATING_CHANGE} points, losers don't lose points.")
+        print(f"Sentences with rating {LEGENDS_MIN_RATING}+ are considered 'Legends' and can reach up to {LEGENDS_MAX_RATING}.")
         print("=" * 40)
         
         # Get categories and sentences
         categories = self._get_categories_from_sentences()
         
-        if not categories:
+        if not categories["regular"] and not categories["legends"]:
             print(f"No categories with sentences rated {TOURNAMENT_MIN_RATING}+ found.")
             return
             
-        # Calculate average rating for each category and sort by number of sentences
-        category_stats = []
-        for category, sentences in categories.items():
-            avg_rating = sum(s.get("rating", 0) for s in sentences) / len(sentences)
-            category_stats.append((category, len(sentences), avg_rating))
+        # Calculate overall tournament completion
+        total_categories = len(categories["stats"])
+        refined_categories = sum(1 for stats in categories["stats"].values() if stats["is_refined"])
+        overall_completion = refined_categories / total_categories if total_categories > 0 else 0
         
-        # Sort by number of sentences (descending)
-        category_stats.sort(key=lambda x: x[1], reverse=True)
+        # Sort categories by refinement status and average rating (prioritize unrefined and lower-rated)
+        sorted_categories = sorted(
+            categories["stats"].items(), 
+            key=lambda x: (x[1]["is_refined"], x[1]["avg_rating"])
+        )
+        
+        # Track whether to show refined categories
+        show_refined = False
             
         while True:
+            # Show tournament completion status
+            print(f"\nTournament completion: {overall_completion:.0%} ({refined_categories}/{total_categories} categories refined)")
+            
+            # Filter categories based on refinement status
+            display_categories = []
+            for category, stats in sorted_categories:
+                if not stats["is_refined"] or show_refined:
+                    display_categories.append((category, stats))
+            
             # Show available categories
-            print(f"\nAvailable categories (showing only sentences rated {TOURNAMENT_MIN_RATING}+ and below {TOURNAMENT_MAX_RATING}):")
-            for i, (category, count, avg_rating) in enumerate(category_stats, 1):
-                print(f"{i}. {category} ({count} sentences, avg: {avg_rating:.1f})")
+            print(f"\nAvailable categories (sorted by refinement need):")
+            if not show_refined:
+                print(f"Showing only categories that need work. Use 'r' to toggle refined categories.")
+            else:
+                print(f"Showing all categories including refined ones. Use 'r' to hide refined categories.")
+                
+            print(f"{'#':<4} {'Category':<25} {'Total':<7} {'Avg Rating':<12} {'Status'}")
+            print("-" * 70)
+            
+            for i, (category, stats) in enumerate(display_categories, 1):
+                # Truncate long category names
+                category_display = category
+                if len(category) > 22:
+                    category_display = category[:19] + "..."
+                
+                status = "✓ Refined" if stats["is_refined"] else "Needs work"
+                print(f"{i:<4} {category_display:<25} {stats['regular_count']:<7} {stats['avg_rating']:.1f}/10{' ':<6} {status}")
                 
             # Let user select a category
             try:
-                category_idx = input("\nSelect category number (or 'q' to quit): ").strip().lower()
+                category_input = input("\nSelect category number, 'r' to toggle refined, 's' for status overview, 'l' for legends, or 'q' to quit: ").strip().lower()
                 
-                if category_idx == 'q':
+                if category_input == 'q':
+                    # Show comprehensive status before exiting
+                    self._show_category_status()
                     self._show_perfect_sentences()
+                    self._show_legends_sentences()
                     return
+                elif category_input == 'r':
+                    # Toggle showing refined categories
+                    show_refined = not show_refined
+                    continue
+                elif category_input == 's':
+                    # Show comprehensive category status
+                    self._show_category_status()
+                    input("\nPress Enter to continue...")
+                    continue
+                elif category_input == 'l':
+                    # Switch to legends tournament
+                    self._run_legends_tournament()
                     
-                category_idx = int(category_idx) - 1
+                    # Refresh categories after legends tournament
+                    categories = self._get_categories_from_sentences()
+                    
+                    # Recalculate tournament completion
+                    total_categories = len(categories["stats"])
+                    refined_categories = sum(1 for stats in categories["stats"].values() if stats["is_refined"])
+                    overall_completion = refined_categories / total_categories if total_categories > 0 else 0
+                    
+                    # Re-sort categories
+                    sorted_categories = sorted(
+                        categories["stats"].items(), 
+                        key=lambda x: (x[1]["is_refined"], x[1]["avg_rating"])
+                    )
+                    continue
+                    
+                category_idx = int(category_input) - 1
                 
-                if 0 <= category_idx < len(category_stats):
-                    selected_category = category_stats[category_idx][0]
-                    result = self._run_category_tournament(selected_category, categories[selected_category])
+                if 0 <= category_idx < len(display_categories):
+                    selected_category = display_categories[category_idx][0]
+                    result = self._run_category_tournament(selected_category, 
+                                                          categories["regular"].get(selected_category, []), 
+                                                          categories["legends"].get(selected_category, []))
                     
                     # If user quit from the tournament, exit completely
                     if result == "quit":
+                        # Show comprehensive status before exiting
+                        self._show_category_status()
                         return
                     
                     # If returning to menu, update categories
@@ -522,40 +715,48 @@ class SentenceRater:
                         # Recalculate categories
                         categories = self._get_categories_from_sentences()
                         
-                        if not categories:
-                            print(f"No categories with sentences rated {TOURNAMENT_MIN_RATING}+ and below {TOURNAMENT_MAX_RATING} found.")
+                        if not categories["regular"] and not categories["legends"]:
+                            print(f"No categories with sentences rated {TOURNAMENT_MIN_RATING}+ found.")
+                            self._show_category_status()
                             self._show_perfect_sentences()
+                            self._show_legends_sentences()
                             return
                             
-                        # Recalculate category stats
-                        category_stats = []
-                        for category, sentences in categories.items():
-                            avg_rating = sum(s.get("rating", 0) for s in sentences) / len(sentences)
-                            category_stats.append((category, len(sentences), avg_rating))
+                        # Recalculate tournament completion
+                        total_categories = len(categories["stats"])
+                        refined_categories = sum(1 for stats in categories["stats"].values() if stats["is_refined"])
+                        overall_completion = refined_categories / total_categories if total_categories > 0 else 0
                         
-                        # Sort by number of sentences (descending)
-                        category_stats.sort(key=lambda x: x[1], reverse=True)
+                        # Re-sort categories
+                        sorted_categories = sorted(
+                            categories["stats"].items(), 
+                            key=lambda x: (x[1]["is_refined"], x[1]["avg_rating"])
+                        )
                 else:
                     print("Invalid category number.")
             except ValueError:
-                print("Please enter a valid number or 'q'.")
+                print("Please enter a valid number or command.")
                 
         print("\nTournament mode completed!")
         self._show_perfect_sentences()
+        self._show_legends_sentences()
     
-    def _run_category_tournament(self, category: str, sentences: List[Dict]) -> None:
+    def _run_category_tournament(self, category: str, regular_sentences: List[Dict], legends_sentences: List[Dict]) -> None:
         """
         Run a tournament for a specific category.
         
         Args:
             category: The category to run the tournament for
-            sentences: List of sentences in this category
+            regular_sentences: List of regular sentences in this category
+            legends_sentences: List of legends sentences in this category
         """
         print(f"\nStarting tournament for category: {category}")
-        print(f"Number of sentences: {len(sentences)}")
+        print(f"Number of regular sentences: {len(regular_sentences)}")
+        if legends_sentences:
+            print(f"Note: {len(legends_sentences)} legend sentences in this category are only available in legends tournament.")
         
-        # Make a copy of the sentences to avoid modifying the original list
-        tournament_sentences = sentences.copy()
+        # Only use regular sentences in the tournament
+        tournament_sentences = regular_sentences.copy()
         
         # Track pairs we've already compared
         compared_pairs = set()
@@ -602,20 +803,44 @@ class SentenceRater:
             
             # Display sentences for comparison
             for i, sentence in enumerate(comparison_group):
-                print(f"\n{i+1}. [{sentence.get('rating', 0):.1f}] {sentence['text']}")
+                rating = sentence.get("rating", 0)
+                print(f"\n{i+1}. [{rating:.1f}] {sentence['text']}")
             
             # Get user selection
             while True:
                 try:
-                    selection = input("\nBest sentence (1, 2, 's' to skip, 'e' to edit, 'q' to quit): ").strip().lower()
+                    selection = input("\nBest sentence (1, 2, 'd' to vote both down, 's' to skip, 'e' to edit, 'q' to quit): ").strip().lower()
                     
                     if selection == 'q':
                         self._save_ratings()
                         print("Ratings saved to", JSON_FILE)
                         print("\nExiting tournament mode.")
                         self._show_perfect_sentences()
+                        self._show_legends_sentences()
                         return "quit"  # Signal to completely exit the tournament
                     elif selection == 's':
+                        break
+                    elif selection == 'd':
+                        # Vote both items down
+                        for sentence in comparison_group:
+                            rating = sentence.get("rating", 0)
+                            is_legend = rating >= LEGENDS_MIN_RATING
+                            
+                            # Legends sentences don't lose points
+                            if not is_legend:
+                                sentence["rating"] = max(0.0, rating - TOURNAMENT_LOSE_RATING_CHANGE)
+                                sentence["last_tournament"] = datetime.now().isoformat()
+                    
+                        # Save after each comparison
+                        self._save_ratings()
+                        print("Ratings saved to", JSON_FILE)
+                        
+                        # Add this pair to compared pairs
+                        if len(comparison_group) == 2:
+                            pair_id = self._get_pair_id(comparison_group[0], comparison_group[1])
+                            compared_pairs.add(pair_id)
+                        
+                        print("\nBoth sentences rated down!")
                         break
                     elif selection == 'e':
                         # Edit mode
@@ -635,7 +860,8 @@ class SentenceRater:
                                     
                                     # Redisplay the sentences after editing
                                     for i, sentence in enumerate(comparison_group):
-                                        print(f"\n{i+1}. [{sentence.get('rating', 0):.1f}] {sentence['text']}")
+                                        rating = sentence.get("rating", 0)
+                                        print(f"\n{i+1}. [{rating:.1f}] {sentence['text']}")
                                 else:
                                     print("No changes made to the sentence.")
                             else:
@@ -649,7 +875,22 @@ class SentenceRater:
                     if 0 <= selection < len(comparison_group):
                         # Update ratings
                         winner = comparison_group[selection]
-                        new_rating = min(TOURNAMENT_MAX_RATING, winner.get("rating", 0) + TOURNAMENT_WIN_RATING_CHANGE)
+                        winner_rating = winner.get("rating", 0)
+                        winner_is_legend = winner_rating >= LEGENDS_MIN_RATING
+                        
+                        # Apply different rating changes based on whether this is a legend
+                        if winner_is_legend:
+                            # Legends get smaller rating increases to avoid inflation
+                            new_rating = min(LEGENDS_MAX_RATING, winner_rating + LEGENDS_WIN_RATING_CHANGE)
+                        else:
+                            # Regular sentences get normal rating increases
+                            new_rating = min(TOURNAMENT_MAX_RATING, winner_rating + TOURNAMENT_WIN_RATING_CHANGE)
+                            
+                            # Check if this sentence reached legend status
+                            if new_rating >= LEGENDS_MIN_RATING and winner not in self.legends_sentences:
+                                self.legends_sentences.append(winner)
+                                print(f"\n🏆 NEW LEGEND! This sentence has reached a rating of {new_rating}!")
+                        
                         winner["rating"] = new_rating
                         winner["last_tournament"] = datetime.now().isoformat()
                         
@@ -663,7 +904,17 @@ class SentenceRater:
                         # Decrease rating for others
                         for i, sentence in enumerate(comparison_group):
                             if i != selection:
-                                sentence["rating"] = max(0.0, sentence.get("rating", 0) - TOURNAMENT_LOSE_RATING_CHANGE)
+                                loser_rating = sentence.get("rating", 0)
+                                loser_is_legend = loser_rating >= LEGENDS_MIN_RATING
+                                
+                                if loser_is_legend:
+                                    # Legends don't lose points
+                                    new_loser_rating = loser_rating
+                                else:
+                                    # Regular sentences lose points normally
+                                    new_loser_rating = max(0.0, loser_rating - TOURNAMENT_LOSE_RATING_CHANGE)
+                                    
+                                sentence["rating"] = new_loser_rating
                                 sentence["last_tournament"] = datetime.now().isoformat()
                                 
                         # Save after each comparison
@@ -679,14 +930,14 @@ class SentenceRater:
                         print(f"\nRatings updated! Winner: {winner['text'][:100]}{'...' if len(winner['text']) > 100 else ''}")
                         break
                     else:
-                        print("Invalid selection. Please enter 1, 2, 's', 'e', or 'q'.")
+                        print("Invalid selection. Please enter 1, 2, 'd', 's', 'e', or 'q'.")
                 except ValueError:
                     print("Please enter a valid number or command.")
             
             # Remove sentences that fall below the threshold or reach perfect score
             tournament_sentences = [s for s in tournament_sentences if 
                                    (s.get("rating", 0) >= TOURNAMENT_MIN_RATING and 
-                                    s.get("rating", 0) < TOURNAMENT_MAX_RATING)]
+                                    s.get("rating", 0) < LEGENDS_MIN_RATING)]
             
             # Check if we should continue
             if round_num % 5 == 0 or len(tournament_sentences) < 2:
@@ -709,6 +960,7 @@ class SentenceRater:
                         self._save_ratings()
                         print("Ratings saved to", JSON_FILE)
                         self._show_perfect_sentences()
+                        self._show_legends_sentences()
                         return "quit"
                     else:
                         print("Invalid choice. Please enter 'c', 'r', or 'q'.")
@@ -776,30 +1028,169 @@ class SentenceRater:
             for i, sentence in enumerate(reversed(self.perfect_sentences), 1):
                 print(f"{i}. {sentence['text']}")
             print("=" * 40)
-
-
-def main():
-    """Main function to run the sentence rater CLI tool."""
-    parser = argparse.ArgumentParser(description="Rate sentences from cover letters")
-    parser.add_argument("--file", default=JSON_FILE, help=f"Path to the JSON file (default: {JSON_FILE})")
-    parser.add_argument("--tournament", action="store_true", help="Start directly in tournament mode")
-    args = parser.parse_args()
     
-    rater = SentenceRater(args.file)
-    
-    if args.tournament:
-        # Skip batch rating if tournament flag is set
-        if rater._get_unrated_sentences():
-            print("Warning: There are unrated sentences. It's recommended to rate them first.")
-            proceed = input("Do you want to proceed directly to tournament mode? (y/n): ").lower().strip()
-            if proceed != 'y':
-                rater.run()
-                return
+    def _show_legends_sentences(self):
+        """Show the sentences that have reached legend status (rating >= 10)."""
+        if self.legends_sentences:
+            print("\n" + "=" * 40)
+            print("LEGENDS SENTENCES")
+            print("=" * 40)
+            
+            # Sort by rating (highest first)
+            sorted_legends = sorted(self.legends_sentences, key=lambda s: s.get("rating", 0), reverse=True)
+            
+            for i, sentence in enumerate(sorted_legends, 1):
+                rating = sentence.get("rating", 0)
+                print(f"{i}. [{rating:.1f}/12] {sentence['text']}")
+            
+            print("=" * 40)
+            print(f"Total legends: {len(self.legends_sentences)}")
+            print("=" * 40)
+
+    def _run_legends_tournament(self) -> None:
+        """Run a tournament specifically for sentences that have reached legend status (rating >= 10)."""
+        print("\n" + "=" * 40)
+        print("LEGENDS TOURNAMENT MODE")
+        print("=" * 40)
+        print(f"Compare your best sentences (rated {LEGENDS_MIN_RATING}+)")
+        print(f"Winner gets +{LEGENDS_WIN_RATING_CHANGE} points (up to max {LEGENDS_MAX_RATING})")
+        print(f"Losers don't lose any points in legends tournament")
+        print("=" * 40)
         
-        rater._run_tournament_mode()
-        rater._show_stats()
-    else:
-        rater.run()
-
-if __name__ == "__main__":
-    main()
+        # Get categories and sentences
+        categories = self._get_categories_from_sentences()
+        
+        # Filter to only include categories with legend sentences
+        legends_categories = {}
+        for category, sentences in categories["legends"].items():
+            if sentences:
+                legends_categories[category] = sentences
+        
+        if not legends_categories:
+            print(f"No legends found. Sentences must reach a rating of {LEGENDS_MIN_RATING}+ to qualify.")
+            print(f"Continue using regular tournament mode to promote sentences to legend status.")
+            return
+            
+        # Calculate overall legends stats
+        total_legends = len(self.legends_sentences)
+        max_rated = max(self.legends_sentences, key=lambda s: s.get("rating", 0))
+        max_rating = max_rated.get("rating", 0)
+        
+        # Sort categories by number of legend sentences (descending)
+        sorted_categories = sorted(
+            legends_categories.items(), 
+            key=lambda x: len(x[1]),
+            reverse=True
+        )
+            
+        while True:
+            # Show legends stats
+            print(f"\nLegends stats: {total_legends} total legends, highest rating: {max_rating:.1f}/12")
+            
+            # Show available categories
+            print(f"\nAvailable legend categories:")
+            print(f"{'#':<4} {'Category':<25} {'Legends':<7} {'Avg Rating':<12}")
+            print("-" * 70)
+            
+            for i, (category, sentences) in enumerate(sorted_categories, 1):
+                # Truncate long category names
+                category_display = category
+                if len(category) > 22:
+                    category_display = category[:19] + "..."
+                
+                avg_rating = sum(s.get("rating", 0) for s in sentences) / len(sentences)
+                print(f"{i:<4} {category_display:<25} {len(sentences):<7} {avg_rating:.1f}/12")
+                
+            # Let user select a category
+            try:
+                category_input = input("\nSelect category number, 's' for status overview, 'r' for regular tournament, or 'q' to quit: ").strip().lower()
+                
+                if category_input == 'q':
+                    # Show comprehensive status before exiting
+                    self._show_category_status()
+                    self._show_legends_sentences()
+                    return
+                elif category_input == 's':
+                    # Show comprehensive category status
+                    self._show_category_status()
+                    input("\nPress Enter to continue...")
+                    continue
+                elif category_input == 'r':
+                    # Switch to regular tournament
+                    self._run_tournament_mode()
+                    
+                    # Refresh categories after regular tournament
+                    categories = self._get_categories_from_sentences()
+                    
+                    # Filter to only include categories with legend sentences
+                    legends_categories = {}
+                    for category, sentences in categories["legends"].items():
+                        if sentences:
+                            legends_categories[category] = sentences
+                    
+                    if not legends_categories:
+                        print(f"No legends found after tournament.")
+                        return
+                        
+                    # Recalculate legends stats
+                    total_legends = len(self.legends_sentences)
+                    if total_legends > 0:
+                        max_rated = max(self.legends_sentences, key=lambda s: s.get("rating", 0))
+                        max_rating = max_rated.get("rating", 0)
+                    else:
+                        max_rating = 0
+                    
+                    # Re-sort categories
+                    sorted_categories = sorted(
+                        legends_categories.items(), 
+                        key=lambda x: len(x[1]),
+                        reverse=True
+                    )
+                    continue
+                    
+                category_idx = int(category_input) - 1
+                
+                if 0 <= category_idx < len(sorted_categories):
+                    selected_category = sorted_categories[category_idx][0]
+                    result = self._run_legends_category_tournament(selected_category, sorted_categories[category_idx][1])
+                    
+                    # If user quit from the tournament, exit completely
+                    if result == "quit":
+                        # Show comprehensive status before exiting
+                        self._show_category_status()
+                        return
+                    
+                    # If returning to menu, update categories
+                    if result == "menu":
+                        # Recalculate categories
+                        categories = self._get_categories_from_sentences()
+                        
+                        # Filter to only include categories with legend sentences
+                        legends_categories = {}
+                        for category, sentences in categories["legends"].items():
+                            if sentences:
+                                legends_categories[category] = sentences
+                        
+                        if not legends_categories:
+                            print(f"No more legends found.")
+                            # Show comprehensive status before exiting
+                            self._show_category_status()
+                            self._show_legends_sentences()
+                            return
+                            
+                        # Recalculate legends stats
+                        total_legends = len(self.legends_sentences)
+                        max_rated = max(self.legends_sentences, key=lambda s: s.get("rating", 0))
+                        max_rating = max_rated.get("rating", 0)
+                        
+                        # Re-sort categories
+                        sorted_categories = sorted(
+                            legends_categories.items(), 
+                            key=lambda x: len(x[1]),
+                            reverse=True
+                        )
+                else:
+                    print("Invalid category number.")
+            except ValueError:
+                print("Please enter a valid number or command.")
+{{ ... }}
