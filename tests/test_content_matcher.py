@@ -17,7 +17,7 @@ from datetime import datetime
 # Add parent directory to path to import module
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from coverletter_wiz.core.content_matcher import ContentMatcher
+from src.core.content_matcher import ContentMatcher
 
 
 class TestContentMatcher(unittest.TestCase):
@@ -190,7 +190,7 @@ class TestContentMatcher(unittest.TestCase):
         test_reports_dir = os.path.join(self.test_dir, "test_reports")
         
         # Patch the REPORTS_DIR constant
-        with patch("coverletter_wiz.core.content_matcher.REPORTS_DIR", test_reports_dir):
+        with patch("src.core.content_matcher.REPORTS_DIR", test_reports_dir):
             # Create a new matcher
             matcher = ContentMatcher(
                 jobs_file=self.jobs_file,

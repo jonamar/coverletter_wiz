@@ -17,7 +17,7 @@ from datetime import datetime
 # Add parent directory to path to import module
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from coverletter_wiz.core.job_analyzer import JobAnalyzer
+from src.core.job_analyzer import JobAnalyzer
 
 
 class TestJobAnalyzer(unittest.TestCase):
