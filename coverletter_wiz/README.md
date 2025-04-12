@@ -14,74 +14,71 @@ Cover Letter Wizard integrates several key components:
 ## System Architecture
 
 ```mermaid
-flowchart TD
-    %% Data Stores
-    RawText[/"Text Archive
-Raw cover letter texts"/]
-    ContentDB[/"Content Database
-cover_letter_content.json"/]
-    JobDB[/"Job Database
-analyzed_jobs.json"/]
-    Reports[/"Reports Directory
-Markdown reports"/]
-    
-    %% Core Components
-    ContentProcessor["Content Processor
-Extract & rate content blocks"]
-    JobAnalyzer["Job Analyzer
-Scrape & analyze job postings"]
-    ContentMatcher["Content Matcher
-Match content to job requirements"]
-    
-    %% User Interfaces
-    RateUI["Rate Content CLI
-Batch rating & tournaments"]
-    JobUI["Job Analysis CLI
-Job posting analysis"]
-    MatchUI["Match Content CLI
-Content matching & reports"]
-    MainUI["Main CLI
-Unified interface"]
-    
-    %% External Services
-    SpaCy["spaCy
-NLP processing"]
-    LLM["Local LLM
-Ollama"]
-    
-    %% Flow
-    RawText --> ContentProcessor
-    ContentProcessor <--> ContentDB
-    JobAnalyzer <--> JobDB
-    JobAnalyzer <-- Web scraping --> Internet
-    
-    ContentProcessor <--> SpaCy
-    JobAnalyzer <--> SpaCy
-    JobAnalyzer <--> LLM
-    
-    ContentDB --> ContentMatcher
-    JobDB --> ContentMatcher
-    ContentMatcher --> Reports
-    ContentMatcher <--> LLM
-    
-    RateUI <--> ContentProcessor
-    JobUI <--> JobAnalyzer
-    MatchUI <--> ContentMatcher
-    
-    MainUI --> RateUI
-    MainUI --> JobUI
-    MainUI --> MatchUI
-    
-    %% Styles
-    classDef dataStore fill:#f9f,stroke:#333,stroke-width:2px;
-    classDef core fill:#bbf,stroke:#333,stroke-width:2px;
-    classDef ui fill:#bfb,stroke:#333,stroke-width:2px;
-    classDef external fill:#fbb,stroke:#333,stroke-width:2px;
-    
-    class RawText,ContentDB,JobDB,Reports dataStore;
-    class ContentProcessor,JobAnalyzer,ContentMatcher core;
-    class RateUI,JobUI,MatchUI,MainUI ui;
-    class SpaCy,LLM,Internet external;
+flowchart LR
+  %% Data Stores
+  subgraph DS[Data Stores]
+      RawText[/"Text Archive<br>Raw cover letter texts"/]
+      ContentDB[/"Content Database<br>cover_letter_content.json"/]
+      JobDB[/"Job Database<br>analyzed_jobs.json"/]
+      Reports[/"Reports Directory<br>Markdown reports"/]
+  end
+
+  %% Core Components
+  subgraph Core[Core Components]
+      ContentProcessor["Content Processor<br>Extract & rate content blocks"]
+      JobAnalyzer["Job Analyzer<br>Scrape & analyze job postings"]
+      ContentMatcher["Content Matcher<br>Match content to job requirements"]
+  end
+
+  %% External Services
+  subgraph Ext[External Services]
+      SpaCy["spaCy<br>NLP processing"]
+      LLM["Local LLM<br>Ollama"]
+      Internet["Internet"]
+  end
+
+  %% User Interfaces
+  subgraph UI[User Interfaces]
+      RateUI["Rate Content CLI<br>Batch rating & tournaments"]
+      JobUI["Job Analysis CLI<br>Job posting analysis"]
+      MatchUI["Match Content CLI<br>Content matching & reports"]
+      MainUI["Main CLI<br>Unified interface"]
+  end
+
+  %% Flows (connections remain unchanged)
+  RawText --> ContentProcessor
+  ContentProcessor <--> ContentDB
+
+  JobAnalyzer <--> JobDB
+  JobAnalyzer -->|Web scraping| Internet
+
+  ContentProcessor <--> SpaCy
+  JobAnalyzer <--> SpaCy
+  JobAnalyzer <--> LLM
+
+  ContentDB --> ContentMatcher
+  JobDB --> ContentMatcher
+  ContentMatcher --> Reports
+  ContentMatcher <--> LLM
+
+  RateUI <--> ContentProcessor
+  JobUI <--> JobAnalyzer
+  MatchUI <--> ContentMatcher
+
+  MainUI --> RateUI
+  MainUI --> JobUI
+  MainUI --> MatchUI
+  
+  %% Style Definitions (High contrast)
+  classDef dataStore fill:#c27ba0,stroke:#333,stroke-width:2px,color:#fff;
+  classDef core fill:#6fa8dc,stroke:#333,stroke-width:2px,color:#fff;
+  classDef ui fill:#93c47d,stroke:#333,stroke-width:2px,color:#fff;
+  classDef external fill:#e06666,stroke:#333,stroke-width:2px,color:#fff;
+  
+  class RawText,ContentDB,JobDB,Reports dataStore;
+  class ContentProcessor,JobAnalyzer,ContentMatcher core;
+  class RateUI,JobUI,MatchUI,MainUI ui;
+  class SpaCy,LLM,Internet external;
 ```
 
 ## Project Structure
