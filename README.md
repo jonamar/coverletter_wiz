@@ -150,6 +150,15 @@ coverletter_wiz/
 - **Match Score**: A weighted score indicating how well a content block matches a job's requirements
 - **Legend Content**: Top-rated content blocks (rating ≥ 10.0) that compete in specialized tournaments
 
+## Versioning
+
+This project follows [Semantic Versioning](https://semver.org/) (SemVer):
+- **MAJOR** version for incompatible API changes
+- **MINOR** version for backwards-compatible functionality additions
+- **PATCH** version for backwards-compatible bug fixes
+
+You can find the current version in `src/__init__.py` and view the complete history of changes in the [CHANGELOG.md](./CHANGELOG.md).
+
 ## Setup
 
 1. Clone the main application repository:
