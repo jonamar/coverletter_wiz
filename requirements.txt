@@ -1,1 +1,6 @@
 spacy>=3.7.2
+beautifulsoup4>=4.13.3
+requests>=2.27.1
+PyYAML>=6.0.2
+python-dotenv>=0.20.0
+ollama>=0.4.7

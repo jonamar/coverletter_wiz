@@ -1,0 +1,18 @@
+# Virtual Environment Information
+# This file provides information about the project's virtual environment
+# without including the actual environment in version control.
+
+VIRTUAL_ENV_PATH=/Users/jonamar/Documents/coverletter_container/coverletter_wiz/.venv
+PYTHON_VERSION=3.9  # Update this with your actual Python version
+
+# Key Dependencies (from requirements.txt)
+# spacy>=3.7.2 (with en_core_web_lg-3.8.0 model)
+# beautifulsoup4>=4.13.3
+# PyYAML>=6.0.2
+# ollama>=0.4.7
+
+# To recreate this environment:
+# 1. python -m venv .venv
+# 2. source .venv/bin/activate
+# 3. pip install -r requirements.txt
+# 4. python -m spacy download en_core_web_lg
