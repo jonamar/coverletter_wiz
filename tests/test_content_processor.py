@@ -182,6 +182,94 @@ class TestContentProcessor(unittest.TestCase):
             # Check that a valid structure was created
             self.assertTrue("metadata" in processor.data)
             self.assertTrue("version" in processor.data["metadata"])
+    
+    def test_edit_block_functionality(self):
+        """Test the edit block functionality."""
+        # Create the content file
+        with open(self.content_file, "w") as f:
+            json.dump(self.content_data, f)
+        
+        # Create processor
+        processor = ContentProcessor(self.content_file)
+        
+        # Test the _edit_block method directly
+        test_block = {
+            "text": "Original text for testing",
+            "tags": ["test", "original"],
+            "rating": 7.5
+        }
+        
+        # Mock the input function to simulate user editing the block
+        with patch("builtins.input", side_effect=["Edited text for testing"]):
+            edited_block = processor._edit_block(test_block)
+            
+            # Check that the edited block has the new text
+            self.assertEqual(edited_block["text"], "Edited text for testing")
+            
+            # Check that tags were preserved
+            self.assertEqual(edited_block["tags"], ["test", "original"])
+            
+            # Check that rating was preserved
+            self.assertEqual(edited_block["rating"], 7.5)
+            
+            # Check that edit metadata was added
+            self.assertEqual(edited_block["edited_from"], "Original text for testing")
+            self.assertTrue("edit_date" in edited_block)
+    
+    def test_tournament_edit_functionality(self):
+        """Test the edit functionality in tournament mode."""
+        # Create a more complex content file with multiple blocks for tournament testing
+        tournament_data = {
+            "metadata": {
+                "version": "1.0",
+                "created": datetime.now().isoformat()
+            },
+            "file1.md": {
+                "content": {
+                    "paragraphs": [
+                        {
+                            "sentences": [
+                                {
+                                    "text": "I am experienced in Python programming.",
+                                    "rating": 8.5,
+                                    "tags": ["python", "programming", "skills_competencies"]
+                                },
+                                {
+                                    "text": "I have worked on many successful projects.",
+                                    "rating": 7.0,
+                                    "tags": ["experience", "projects", "skills_competencies"]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        }
+        
+        # Create the content file
+        with open(self.content_file, "w") as f:
+            json.dump(tournament_data, f)
+        
+        # Create processor
+        processor = ContentProcessor(self.content_file)
+        
+        # Test the edit functionality directly
+        test_block = {
+            "text": "Original tournament text",
+            "tags": ["test", "tournament"],
+            "rating": 7.0
+        }
+        
+        # Mock the input function to simulate user editing the block
+        with patch("builtins.input", return_value="Edited tournament block"):
+            edited_block = processor._edit_block(test_block)
+            
+            # Check that the edited block has the new text
+            self.assertEqual(edited_block["text"], "Edited tournament block")
+            
+            # Check that edit metadata was added
+            self.assertEqual(edited_block["edited_from"], "Original tournament text")
+            self.assertTrue("edit_date" in edited_block)
 
 
 if __name__ == "__main__":

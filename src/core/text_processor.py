@@ -56,12 +56,12 @@ class TextProcessor:
                 print(f"Successfully downloaded and loaded {spacy_model}")
             except Exception as e:
                 print(f"Failed to download spaCy model: {e}")
-                print("Using en_core_web_sm as fallback")
+                print("Using en_core_web_lg as fallback")
                 try:
-                    self.nlp = spacy.load("en_core_web_sm")
+                    self.nlp = spacy.load("en_core_web_lg")
                 except:
                     print("Error: Could not load any spaCy model.")
-                    print("Please install a spaCy model with: python -m spacy download en_core_web_sm")
+                    print("Please install a spaCy model with: python -m spacy download en_core_web_lg")
                     raise
     
     def _load_categories(self, yaml_file: str = None) -> Dict:
@@ -74,10 +74,13 @@ class TextProcessor:
         Returns:
             Dict: Categories data structure
         """
+        from src.config import DATA_DIR
+        
         # Try multiple possible locations for the categories file
         possible_paths = [
             yaml_file,  # Use provided path if available
-            "data/config/categories.yaml",  # Standard location
+            os.path.join(DATA_DIR, "config/categories.yaml"),  # External data directory
+            "data/config/categories.yaml",  # Legacy standard location
             os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
                         "data/config/categories.yaml"),  # Absolute path
             os.path.join(os.getcwd(), "data/config/categories.yaml")  # Current working directory

@@ -18,6 +18,7 @@ import traceback
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from src.core.text_processor import TextProcessor
+from src.config import DATA_DIR
 
 def setup_argparse():
     """Set up argument parser for the process_text CLI."""
@@ -31,7 +32,7 @@ def setup_argparse():
                        help="Directory containing text files to process")
     parser.add_argument("--output-file", type=str, 
                        help="Output JSON file for processed content")
-    parser.add_argument("--model", type=str, default="en_core_web_md",
+    parser.add_argument("--model", type=str, default="en_core_web_lg",
                        help="spaCy model to use for NLP processing")
     
     return parser
@@ -42,12 +43,9 @@ def main():
     args = parser.parse_args()
     
     try:
-        # Set default paths if not provided
-        script_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        data_dir = os.path.join(script_dir, "data")
-        
-        archive_dir = args.archive_dir or os.path.join(data_dir, "text-archive")
-        output_file = args.output_file or os.path.join(data_dir, "processed_cover_letters.json")
+        # Set default paths using external data directory
+        archive_dir = args.archive_dir or os.path.join(DATA_DIR, "text-archive")
+        output_file = args.output_file or os.path.join(DATA_DIR, "json/processed_cover_letters.json")
         
         # Ensure directories exist
         os.makedirs(os.path.dirname(output_file), exist_ok=True)

@@ -13,15 +13,18 @@ from collections import defaultdict, Counter
 
 # Load spaCy model 
 try:
-    nlp = spacy.load("en_core_web_md")
+    nlp = spacy.load("en_core_web_lg")
 except OSError:
-    # Fallback to small model if medium is not available
+    # Fallback to medium model if large is not available
     try:
-        nlp = spacy.load("en_core_web_sm")
-        print("Warning: Using small spaCy model instead of medium. Some features may be limited.")
+        nlp = spacy.load("en_core_web_md")
     except OSError:
-        print("Error: No spaCy model found. Please install one with: python -m spacy download en_core_web_md")
-        nlp = None
+        # Fallback to small model if medium is not available
+        try:
+            nlp = spacy.load("en_core_web_sm")
+        except OSError:
+            # If no model is available, set nlp to None and handle gracefully
+            nlp = None
 
 def extract_tags_from_text(text: str) -> List[str]:
     """

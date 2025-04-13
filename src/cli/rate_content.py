@@ -24,6 +24,7 @@ from datetime import datetime
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from src.core.content_processor import ContentProcessor
+from src.config import DATA_DIR
 
 def setup_argparse():
     """
@@ -58,8 +59,8 @@ def setup_argparse():
                        help="Minimum rating for content blocks to export (default: 8.0)")
     parser.add_argument("--category", type=str, 
                        help="Specific category to refine in refinement mode")
-    parser.add_argument("--file", type=str, default="data/json/cover_letter_content.json", 
-                       help="Path to content JSON file (default: data/json/cover_letter_content.json)")
+    parser.add_argument("--file", type=str, default=os.path.join(DATA_DIR, "json/cover_letter_content.json"), 
+                       help="Path to content JSON file (default: in external data directory)")
     parser.add_argument("--output", type=str, 
                        help="Path to output file for exports (default: auto-generated)")
     

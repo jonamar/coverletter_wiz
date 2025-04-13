@@ -18,8 +18,11 @@ from datetime import datetime
 import uuid
 import time
 
+# Import config for data directory paths
+from src.config import DATA_DIR
+
 # Constants
-JSON_FILE = "data/json/cover_letter_content.json"
+JSON_FILE = os.path.join(DATA_DIR, "json/cover_letter_content.json")
 BATCH_RATING_SCALE = 10   # 1-10 scale for batch ratings
 FILTER_THRESHOLD = 2      # Ratings <= this value are filtered out
 BATCH_SIZE = 10           # Number of items to show in each batch
@@ -633,8 +636,31 @@ class ContentProcessor:
                     elif selection == 's':
                         break
                     elif selection == 'e':
-                        # Edit mode (placeholder)
-                        print("Edit functionality would be implemented here")
+                        # Edit mode
+                        edit_selection = input("Which content block to edit (1 or 2)? ").strip()
+                        try:
+                            edit_idx = int(edit_selection) - 1
+                            if 0 <= edit_idx < len(comparison_group):
+                                block_to_edit = comparison_group[edit_idx]
+                                edited_block = self._edit_block(block_to_edit)
+                                if edited_block and edited_block['text'] != block_to_edit['text']:
+                                    # Add the edited block to the data
+                                    self._add_edited_block(edited_block)
+                                    
+                                    # Update the comparison group with the edited block
+                                    comparison_group[edit_idx] = edited_block
+                                    
+                                    # Redisplay the blocks after editing
+                                    print("\nContent blocks after editing:")
+                                    for i, block in enumerate(comparison_group):
+                                        rating = block.get("rating", 0)
+                                        print(f"\n{i+1}. [{rating:.1f}] {block['text']}")
+                                else:
+                                    print("No changes made or edit canceled.")
+                            else:
+                                print("Invalid selection. Please enter 1 or 2.")
+                        except ValueError:
+                            print("Invalid input. Please enter a number.")
                         continue
                         
                     selection = int(selection) - 1
@@ -701,7 +727,7 @@ class ContentProcessor:
             print(f"\n{category} tournament completed!")
             
         return "menu"  # Signal to return to category menu
-    
+
     def _get_pair_id(self, block1: Dict, block2: Dict) -> str:
         """
         Generate a unique ID for a pair of content blocks to track compared pairs.
@@ -938,8 +964,31 @@ class ContentProcessor:
                         print("\nBoth blocks rated down!")
                         break
                     elif selection == 'e':
-                        # Edit mode (placeholder)
-                        print("Edit functionality would be implemented here")
+                        # Edit mode
+                        edit_selection = input("Which content block to edit (1 or 2)? ").strip()
+                        try:
+                            edit_idx = int(edit_selection) - 1
+                            if 0 <= edit_idx < len(comparison_group):
+                                block_to_edit = comparison_group[edit_idx]
+                                edited_block = self._edit_block(block_to_edit)
+                                if edited_block and edited_block['text'] != block_to_edit['text']:
+                                    # Add the edited block to the data
+                                    self._add_edited_block(edited_block)
+                                    
+                                    # Update the comparison group with the edited block
+                                    comparison_group[edit_idx] = edited_block
+                                    
+                                    # Redisplay the blocks after editing
+                                    print("\nContent blocks after editing:")
+                                    for i, block in enumerate(comparison_group):
+                                        rating = block.get("rating", 0)
+                                        print(f"\n{i+1}. [{rating:.1f}] {block['text']}")
+                                else:
+                                    print("No changes made or edit canceled.")
+                            else:
+                                print("Invalid selection. Please enter 1 or 2.")
+                        except ValueError:
+                            print("Invalid input. Please enter a number.")
                         continue
                         
                     selection = int(selection) - 1
@@ -948,10 +997,9 @@ class ContentProcessor:
                         # Update ratings
                         winner = comparison_group[selection]
                         winner_rating = winner.get("rating", 0)
-                        winner_is_legend = winner_rating >= LEGENDS_MIN_RATING
                         
                         # Apply different rating changes based on whether this is a legend
-                        if winner_is_legend:
+                        if winner_rating >= LEGENDS_MIN_RATING:
                             # Legends get smaller rating increases to avoid inflation
                             new_rating = min(LEGENDS_MAX_RATING, winner_rating + LEGENDS_WIN_RATING_CHANGE)
                         else:
@@ -1188,6 +1236,7 @@ class ContentProcessor:
         edited_block = {
             "text": new_text,
             "tags": block.get("tags", []).copy(),
+            "rating": block.get("rating", 0),  # Preserve the original rating
             "is_block_group": False,  # Always create as a single block
             "component_blocks": [],
             "edited_from": block.get("text", ""),
