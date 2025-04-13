@@ -4,6 +4,10 @@ CoverLetter Wiz is an AI-powered tool that helps you improve and evolve your job
 
 Built on natural language processing (NLP) techniques like named entity recognition (NER), noun chunk extraction, and pattern-based keyword detection, CoverLetter Wiz turns unstructured text into structured insights. It primarily relies on spaCy and local LLMs via Ollama to accomplish these tasks. These insights help surface key themes, skills, and phrases that matter to both you and potential employers—so you can focus your improvements on what's most relevant.
 
+## License
+
+This project is released under the [CC0 1.0 Universal (CC0 1.0) Public Domain Dedication](https://creativecommons.org/publicdomain/zero/1.0/). You can copy, modify, distribute and perform the work, even for commercial purposes, all without asking permission.
+
 ## Project Structure
 
 This project uses a specific directory structure to maintain privacy and separation of concerns:
@@ -36,6 +40,18 @@ For privacy reasons, personal data is stored in separate git repositories (`cove
 3. Apply different access controls to your personal data
 
 The application is configured to look for the data directory one level up from the application directory. This ensures that your personal data is not accidentally committed to the main repository.
+
+### Privacy-First Approach
+
+CoverLetter Wiz is designed with privacy as a core principle:
+
+- **100% Local Processing**: All processing happens on your local machine. Your personal information never leaves your computer.
+- **No External APIs**: The application uses locally-run models (spaCy and Ollama) for all NLP and AI tasks.
+- **Limited Internet Access**: The only external interaction is fetching job postings from the web when explicitly requested.
+- **Separate Data Storage**: Your private data is stored in a completely separate git repository from the application code.
+- **No Telemetry**: The application does not collect or transmit any usage data or personal information.
+
+This approach ensures that you maintain complete control over your personal information while still benefiting from advanced AI-powered analysis.
 
 ## System Overview
 
@@ -308,3 +324,7 @@ Export your best content for easy use in cover letters:
 - **Ollama**: Used for running local LLMs for job analysis and cover letter generation
 - **BeautifulSoup**: Used for web scraping job postings
 - **PyYAML**: Used for configuration file parsing
+
+## Development
+
+This project was developed through pair programming with AI assistants, specifically GPT-4o and Claude Sonnet 3.7. This collaborative approach enabled rapid development while maintaining high code quality and comprehensive documentation.
