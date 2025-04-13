@@ -3,28 +3,79 @@
 spaCy Utilities - Helper functions for NLP processing using spaCy.
 
 This module provides utilities for processing text using spaCy,
-including tag extraction, content parsing, and job tag prioritization.
+including tag extraction, similarity calculation, and content analysis.
 """
 
-import spacy
+import os
 import re
-from typing import Dict, List, Set, Tuple
-from collections import defaultdict, Counter
+from typing import List, Dict, Set, Tuple, Optional
+import spacy
+import warnings
 
-# Load spaCy model 
+# Try to load the large model first, then fall back to medium or small if needed
+nlp = None
 try:
     nlp = spacy.load("en_core_web_lg")
+    print("Loaded spaCy model: en_core_web_lg")
 except OSError:
-    # Fallback to medium model if large is not available
     try:
         nlp = spacy.load("en_core_web_md")
+        print("Loaded spaCy model: en_core_web_md (fallback)")
     except OSError:
-        # Fallback to small model if medium is not available
         try:
             nlp = spacy.load("en_core_web_sm")
+            print("Loaded spaCy model: en_core_web_sm (fallback)")
         except OSError:
-            # If no model is available, set nlp to None and handle gracefully
-            nlp = None
+            print("Warning: Could not load any spaCy model. Some features may not work correctly.")
+
+# Suppress the specific warning about empty vectors
+warnings.filterwarnings("ignore", message=".*W008.*")
+
+def normalize_text(text):
+    """
+    Normalize text for spaCy processing:
+    - Replace underscores with spaces
+    - Trim extra whitespace
+    
+    Args:
+        text: Text to normalize
+        
+    Returns:
+        Normalized text
+    """
+    # Replace underscores with spaces for better semantic matching
+    normalized = text.replace('_', ' ')
+    # Trim extra whitespace
+    normalized = re.sub(r'\s+', ' ', normalized).strip()
+    return normalized
+
+def has_vector(doc):
+    """Check if a spaCy doc has a valid vector."""
+    if not doc or not hasattr(doc, "vector") or not doc.vector.size:
+        return False
+    
+    # Check if vector is all zeros
+    return doc.vector.any()
+
+def safe_similarity(doc1, doc2, default_score=0.0):
+    """
+    Calculate similarity between two spaCy docs safely.
+    
+    Args:
+        doc1: First spaCy doc
+        doc2: Second spaCy doc
+        default_score: Default score to return if similarity can't be calculated
+        
+    Returns:
+        Similarity score or default value
+    """
+    if not doc1 or not doc2 or not has_vector(doc1) or not has_vector(doc2):
+        return default_score
+    
+    try:
+        return doc1.similarity(doc2)
+    except:
+        return default_score
 
 def extract_tags_from_text(text: str) -> List[str]:
     """
@@ -83,18 +134,19 @@ def extract_tags_from_text(text: str) -> List[str]:
     
     return normalized_tags
 
-def prioritize_tags_for_job(job_text: str, categories: Dict) -> Dict[str, List[str]]:
+def prioritize_tags_for_job(job_text: str, categories: Dict, manual_keywords: Dict = None) -> Dict[str, List[str]]:
     """
-    Analyze job text and prioritize tags based on importance.
+    Analyze job text and prioritize tags based on importance using semantic matching.
     
     This function uses spaCy to:
-    1. Extract all potential tags from the job description
-    2. Categorize tags based on frequency and importance
-    3. Sort tags into high, medium, and low priority buckets
+    1. Start with categories from the YAML file as the source of truth
+    2. Use semantic matching to find which categories are most relevant to the job text
+    3. Incorporate manual keywords if provided
     
     Args:
         job_text: Job posting text
         categories: Categories from YAML file
+        manual_keywords: Optional dictionary of manual keywords by priority level
         
     Returns:
         Dict with high, medium, and low priority tags
@@ -102,64 +154,88 @@ def prioritize_tags_for_job(job_text: str, categories: Dict) -> Dict[str, List[s
     if not nlp:
         return {"high_priority": [], "medium_priority": [], "low_priority": []}
     
-    # Extract all potential tags from job text
-    all_tags = extract_tags_from_text(job_text)
+    # Process the job text with spaCy
+    job_doc = nlp(normalize_text(job_text))
     
-    # Get frequency of each tag in the text
-    tag_counter = Counter()
-    for tag in all_tags:
-        tag_counter[tag] += 1
+    # Calculate semantic similarity between job text and each category
+    category_scores = {}
     
-    # Get the most frequent tags
-    most_frequent = [tag for tag, count in tag_counter.most_common(20)]
+    # First, score the categories themselves (not the expanded tags)
+    for category in categories.keys():
+        # Convert underscores to spaces for better semantic matching
+        category_text = normalize_text(category)
+        category_doc = nlp(category_text)
+        
+        # Calculate similarity between job text and category
+        similarity = safe_similarity(job_doc, category_doc, default_score=0.0)
+        category_scores[category] = similarity * 2.0  # Give higher weight to category concepts
     
-    # Map tags to categories
-    categorized_tags = defaultdict(list)
-    for tag in all_tags:
-        # Find which category this tag belongs to
-        for category, tags in categories.items():
-            if any(cat_tag in tag for cat_tag in tags) or any(tag in cat_tag for cat_tag in tags):
-                categorized_tags[category].append(tag)
-                break
+    # Now also score individual tags within each category
+    tag_scores = {}
+    tag_to_category = {}
     
-    # Create priority buckets
-    high_priority = []
-    medium_priority = []
-    low_priority = []
+    for category, tags in categories.items():
+        for tag in tags:
+            # Normalize tag text
+            tag_text = normalize_text(tag)
+            tag_doc = nlp(tag_text)
+            # Calculate similarity between job text and tag
+            similarity = safe_similarity(job_doc, tag_doc, default_score=0.0)
+            
+            # Store the tag's score and its parent category
+            tag_scores[tag] = similarity
+            tag_to_category[tag] = category
     
-    # First, add the most frequent tags to high priority
-    for tag in most_frequent[:5]:
-        if tag not in high_priority:
-            high_priority.append(tag)
+    # Combine scores: if a tag has a high score and its category has a high score,
+    # it's more likely to be relevant
+    combined_scores = {}
+    for tag, score in tag_scores.items():
+        category = tag_to_category[tag]
+        category_score = category_scores.get(category, 0)
+        
+        # Weighted combination of tag and category scores
+        combined_scores[tag] = (score * 0.8) + (category_score * 0.4)
     
-    # Next, add categorized tags based on their category importance
-    important_categories = ["skills_competencies", "product_outcomes"]
-    medium_categories = ["team_people", "industry_domain"]
+    # Sort tags by combined score
+    sorted_tags = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
     
-    for category, tags in categorized_tags.items():
-        if category in important_categories:
-            # Add to high priority if not already there
-            for tag in tags[:3]:  # Top 3 tags from important categories
-                if tag not in high_priority and len(high_priority) < 10:
-                    high_priority.append(tag)
-        elif category in medium_categories:
-            # Add to medium priority
-            for tag in tags[:3]:  # Top 3 tags from medium categories
-                if tag not in high_priority and tag not in medium_priority and len(medium_priority) < 15:
-                    medium_priority.append(tag)
-        else:
-            # Add to low priority
-            for tag in tags[:3]:  # Top 3 tags from other categories
-                if tag not in high_priority and tag not in medium_priority and tag not in low_priority and len(low_priority) < 20:
-                    low_priority.append(tag)
+    # Determine priority thresholds based on score distribution
+    if sorted_tags:
+        scores = [score for _, score in sorted_tags]
+        max_score = max(scores)
+        high_threshold = max_score * 0.75
+        medium_threshold = max_score * 0.5
+        
+        # Assign tags to priority levels based on thresholds
+        high_priority = [tag for tag, score in sorted_tags if score >= high_threshold]
+        medium_priority = [tag for tag, score in sorted_tags if high_threshold > score >= medium_threshold]
+        low_priority = [tag for tag, score in sorted_tags if medium_threshold > score > 0.3]  # Minimum threshold
+        
+        # Limit the number of tags in each priority level
+        high_priority = high_priority[:7]  # Allow more high-priority tags
+        medium_priority = medium_priority[:10]
+        low_priority = low_priority[:12]
+    else:
+        high_priority = []
+        medium_priority = []
+        low_priority = []
     
-    # Add remaining frequent tags to appropriate buckets
-    for tag in most_frequent:
-        if tag not in high_priority and tag not in medium_priority and tag not in low_priority:
-            if len(medium_priority) < 15:
-                medium_priority.append(tag)
-            elif len(low_priority) < 20:
-                low_priority.append(tag)
+    # Incorporate manual keywords if provided
+    if manual_keywords:
+        if "high_priority" in manual_keywords:
+            for kw in manual_keywords["high_priority"]:
+                if kw not in high_priority and kw not in medium_priority and kw not in low_priority:
+                    high_priority.append(kw)
+        
+        if "medium_priority" in manual_keywords:
+            for kw in manual_keywords["medium_priority"]:
+                if kw not in high_priority and kw not in medium_priority and kw not in low_priority:
+                    medium_priority.append(kw)
+        
+        if "low_priority" in manual_keywords:
+            for kw in manual_keywords["low_priority"]:
+                if kw not in high_priority and kw not in medium_priority and kw not in low_priority:
+                    low_priority.append(kw)
     
     return {
         "high_priority": high_priority,
@@ -181,7 +257,7 @@ def get_related_tags(tag: str, all_tags: List[str]) -> List[str]:
     if not nlp:
         return []
         
-    tag_doc = nlp(tag)
+    tag_doc = nlp(normalize_text(tag))
     
     # Calculate similarity between tag and all other tags
     similarities = []
@@ -189,8 +265,8 @@ def get_related_tags(tag: str, all_tags: List[str]) -> List[str]:
         if other_tag == tag:
             continue
             
-        other_doc = nlp(other_tag)
-        similarity = tag_doc.similarity(other_doc)
+        other_doc = nlp(normalize_text(other_tag))
+        similarity = safe_similarity(tag_doc, other_doc, default_score=0.0)
         similarities.append((other_tag, similarity))
     
     # Sort by similarity (highest first)
@@ -290,7 +366,7 @@ def analyze_content_block_similarity(blocks: List[Dict]) -> Dict[str, List[str]]
                 continue
                 
             # Calculate similarity
-            similarity = doc_i.similarity(doc_j)
+            similarity = safe_similarity(doc_i, doc_j, default_score=0.0)
             
             # If similarity is above threshold, add to similar blocks
             if similarity > 0.8:  # Adjust threshold as needed
@@ -475,10 +551,10 @@ def assign_tags_with_spacy(text: str, categories: Dict, max_tags: int = 5, nlp=N
             continue  # Skip already matched keywords
             
         # Get spaCy docs for comparison
-        keyword_doc = spacy_nlp(keyword)
+        keyword_doc = spacy_nlp(normalize_text(keyword))
         
         # Calculate similarity with the full text
-        similarity = max(keyword_doc.similarity(doc), 0.0)  # Ensure non-negative
+        similarity = safe_similarity(keyword_doc, doc, default_score=0.0)
         
         # Only include if similarity is above threshold
         if similarity > 0.6:  # Adjust threshold as needed
@@ -493,3 +569,39 @@ def assign_tags_with_spacy(text: str, categories: Dict, max_tags: int = 5, nlp=N
     
     # Return top N tags
     return tag_scores[:max_tags]
+
+def find_similar_tags(tag: str, all_tags: List[str], max_results: int = 5) -> List[Tuple[str, float]]:
+    """
+    Find similar tags to a given tag.
+    
+    Args:
+        tag: Tag to find similar tags for
+        all_tags: List of all tags to search
+        max_results: Maximum number of results to return
+        
+    Returns:
+        List of tuples (tag, similarity) of similar tags
+    """
+    if not nlp:
+        return []
+    
+    # Process tag with spaCy
+    tag_text = normalize_text(tag)
+    tag_doc = nlp(tag_text)
+    
+    # Find similar tags
+    similarities = []
+    for other_tag in all_tags:
+        if other_tag == tag:
+            continue
+            
+        other_text = normalize_text(other_tag)
+        other_doc = nlp(other_text)
+        similarity = safe_similarity(tag_doc, other_doc, default_score=0.0)
+        similarities.append((other_tag, similarity))
+    
+    # Sort by similarity (highest first)
+    similarities.sort(key=lambda x: x[1], reverse=True)
+    
+    # Return top similar tags
+    return similarities[:max_results]

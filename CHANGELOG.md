@@ -10,6 +10,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Future changes will be listed here before release
 
+## [0.2.2] - 2025-04-13
+
+### Added
+- Improved cover letter generation prompt to preserve original phrasing
+- Enhanced keyword management with automatic content re-tagging
+
+### Changed
+- Updated cover letter generation to avoid content duplication
+- Improved error handling in content re-tagging functionality
+- Enhanced type checking for more robust content processing
+
+### Fixed
+- Fixed issue with content re-tagging when new keywords are added
+- Improved handling of content blocks structure in re-tagging process
+
+## [0.2.1] - 2025-04-13
+
+### Added
+- Improved keyword management system with better semantic matching
+- Added "strategic_execution" tag to skills_competencies category
+- Automatic re-tagging of content blocks when new keywords are added
+
+### Changed
+- Enhanced keyword saving functionality with better feedback and fallback options
+- Removed unused category_expansions.yaml file and references
+- Updated documentation to reflect keyword management improvements
+
+### Fixed
+- Fixed issue with keywords not being properly saved to categories.yaml
+- Improved semantic matching for compound keywords (e.g., strategic_execution)
+- Enhanced error handling in keyword addition process
+
+## [0.2.0] - 2025-04-13
+
+### Added
+- Unified CLI structure with single entry point (`./coverletter`)
+- Subcommands for all major functionality (analyze, match, export, report)
+- Improved semantic matching for keywords and content blocks
+- Content gaps section in job reports to identify missing high-quality content
+- Flexible keyword injection with semantic category matching
+- CLI support for adding and saving keywords
+
+### Changed
+- Moved standalone scripts to organized CLI module structure
+- Refactored report generation with improved content prioritization
+- Enhanced semantic matching with normalized text handling
+- Updated documentation to reflect new CLI structure
+- Improved handling of underscore-separated keywords
+
+### Fixed
+- Resolved issues with empty vector warnings in spaCy similarity calculations
+- Fixed data privacy concerns by ensuring all personal data is stored in external data repository
+
 ## [0.1.2] - 2025-04-12
 
 ### Changed
@@ -43,7 +96,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moved data storage to external directory for privacy
 - Updated data paths to reference external data location
 
-[Unreleased]: https://github.com/yourusername/coverletter_wiz/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.1...v0.2.2
+[0.2.1]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/yourusername/coverletter_wiz/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/yourusername/coverletter_wiz/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/yourusername/coverletter_wiz/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/yourusername/coverletter_wiz/releases/tag/v0.1.0

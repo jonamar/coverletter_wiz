@@ -14,3 +14,6 @@ DATA_DIR = os.path.join(PARENT_DIR, "coverletter_data")
 
 # Ensure the data directory exists
 os.makedirs(DATA_DIR, exist_ok=True)
+
+# Default LLM model to use for analysis and generation
+DEFAULT_LLM_MODEL = "gemma3:12b"

@@ -15,12 +15,12 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from src.core.job_analyzer import JobAnalyzer
+from src.config import DEFAULT_LLM_MODEL, DATA_DIR
 
-def setup_argparse():
+def setup_argparse(parser=None):
     """Set up argument parser for the CLI."""
-    parser = argparse.ArgumentParser(
-        description="Analyze job postings and extract key information."
-    )
+    if parser is None:
+        parser = argparse.ArgumentParser(description="Analyze job postings and extract key information.")
     
     # Main arguments
     parser.add_argument("--url", type=str, help="URL of the job posting to analyze")
@@ -28,10 +28,10 @@ def setup_argparse():
     parser.add_argument("--display", type=int, help="Display a job by its ID")
     
     # Optional parameters
-    parser.add_argument("--model", type=str, default="deepseek-r1:8b", 
+    parser.add_argument("--model", type=str, default=DEFAULT_LLM_MODEL, 
                        help="LLM model to use for analysis")
-    parser.add_argument("--file", type=str, default="data/json/analyzed_jobs.json", 
-                       help="Path to jobs JSON file")
+    parser.add_argument("--file", type=str, default=os.path.join(DATA_DIR, "json/analyzed_jobs.json"), 
+                       help="Path to the output file")
     parser.add_argument("--multi-model", action="store_true", 
                        help="Run analysis with multiple LLM models and compare results")
     parser.add_argument("--models", type=str, 
@@ -39,10 +39,11 @@ def setup_argparse():
     
     return parser
 
-def main():
+def main(args=None):
     """Run the job analyzer CLI."""
-    parser = setup_argparse()
-    args = parser.parse_args()
+    if args is None:
+        parser = setup_argparse()
+        args = parser.parse_args()
     
     # Initialize analyzer with specified file and model
     analyzer = JobAnalyzer(output_file=args.file, llm_model=args.model)

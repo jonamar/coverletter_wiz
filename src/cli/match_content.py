@@ -16,12 +16,12 @@ from datetime import datetime
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from src.core.content_matcher import ContentMatcher
+from src.config import DEFAULT_LLM_MODEL, DATA_DIR
 
-def setup_argparse():
+def setup_argparse(parser=None):
     """Set up argument parser for the CLI."""
-    parser = argparse.ArgumentParser(
-        description="Match cover letter content to job requirements and generate reports."
-    )
+    if parser is None:
+        parser = argparse.ArgumentParser(description="Match cover letter content to job requirements and generate reports.")
     
     # Main operation modes
     parser.add_argument("--job-id", type=int, help="Sequential ID of the job to analyze")
@@ -43,12 +43,12 @@ def setup_argparse():
                       help="Bonus for each additional tag match (default: 0.1)")
     
     # File paths and LLM options
-    parser.add_argument("--model", type=str, default="gemma3:12b",
+    parser.add_argument("--model", type=str, default=DEFAULT_LLM_MODEL,
                       help="LLM model to use for cover letter generation (default: gemma3:12b)")
-    parser.add_argument("--jobs-file", type=str, default="data/json/analyzed_jobs.json",
-                      help="Path to jobs JSON file")
-    parser.add_argument("--content-file", type=str, default="data/json/cover_letter_content.json",
-                      help="Path to content JSON file")
+    parser.add_argument("--jobs-file", type=str, default=os.path.join(DATA_DIR, "json/analyzed_jobs.json"),
+                      help="Path to the analyzed jobs JSON file")
+    parser.add_argument("--content-file", type=str, default=os.path.join(DATA_DIR, "json/cover_letter_content.json"),
+                      help="Path to the cover letter content JSON file")
     parser.add_argument("--list-models", action="store_true",
                       help="List available Ollama models and exit")
     parser.add_argument("--multi-model", action="store_true",
@@ -72,9 +72,8 @@ def match_content(args):
             return 1
             
         # Setup paths
-        data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
-        cover_letters_file = os.path.join(data_dir, 'processed_cover_letters.json')
-        analyzed_jobs_file = os.path.join(data_dir, 'analyzed_jobs.json')
+        cover_letters_file = os.path.join(DATA_DIR, 'json/cover_letter_content.json')
+        analyzed_jobs_file = os.path.join(DATA_DIR, 'json/analyzed_jobs.json')
         
         # Validate file existence
         if not os.path.exists(cover_letters_file):
@@ -253,7 +252,7 @@ def match_content(args):
         traceback.print_exc()
         return 1
 
-def main():
+def main(args=None):
     """Run the content matcher CLI."""
     parser = setup_argparse()
     args = parser.parse_args()

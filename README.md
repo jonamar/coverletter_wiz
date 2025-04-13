@@ -116,6 +116,25 @@ flowchart LR
   class SpaCy,LLM,Internet external;
 ```
 
+## Key Features
+
+### Intelligent Keyword Management
+- **Semantic Keyword Matching**: Uses spaCy's NLP capabilities to match keywords to content based on semantic similarity rather than exact matches
+- **Automatic Category Assignment**: New keywords are automatically assigned to the most semantically similar category
+- **Keyword Persistence**: Keywords can be saved to the categories.yaml file for future use
+- **Content Re-tagging**: Content blocks are automatically re-tagged when new keywords are added
+
+### Privacy-First Design
+- **Data Separation**: Personal data is stored in a separate repository from the application code
+- **Local Processing**: All NLP and LLM processing is done locally on your machine
+- **No External Data Sharing**: Your private information is never shared with external services
+- **Separate Git Repositories**: Different access controls can be applied to code vs. personal data
+
+### Semantic Content Matching
+- **Intelligent Tag Prioritization**: Job requirements are analyzed and prioritized based on semantic relevance
+- **Content Block Scoring**: Content blocks are scored based on both their rating and semantic match to job requirements
+- **Content Gaps Analysis**: Reports identify missing high-quality content for important tag categories
+
 ## Application Structure
 
 ```
@@ -194,54 +213,41 @@ You can find the current version in `src/__init__.py` and view the complete hist
 
 ## Usage
 
-### Unified CLI (Recommended)
+### Unified CLI
+
+The Cover Letter Wizard provides a unified command-line interface for all functionality:
+
+```bash
+# Show help and available commands
+./coverletter --help
+
+# Analyze a job posting
+./coverletter analyze --url "https://example.com/job-posting"
+
+# List analyzed jobs
+./coverletter analyze --list
+
+# Match content to a specific job
+./coverletter match --job-id 1
+
+# Generate a comprehensive report with cover letter
+./coverletter report --job-id 1 --keywords "python,machine learning"
+
+# Export high-rated content blocks
+./coverletter export --min-rating 8.5
+```
+
+Each subcommand has its own set of options that you can view with:
+
+```bash
+./coverletter <subcommand> --help
+```
+
+### Legacy CLI (Deprecated)
 
 ```bash
 # Rate content blocks in batch mode (initial rating)
 python coverletter_wiz.py rate --batch
-
-# Run tournament mode for comparing content blocks by category
-python coverletter_wiz.py rate --tournament
-
-# Run legends tournament for highest-rated content
-python coverletter_wiz.py rate --legends
-
-# Run category refinement mode to organize content by topic
-python coverletter_wiz.py rate --refinement
-
-# View statistics about your content blocks
-python coverletter_wiz.py rate --stats
-
-# Export high-rated content blocks to markdown
-python coverletter_wiz.py rate --export --min-rating 8.0
-
-# Analyze a job posting
-python coverletter_wiz.py job --url "https://example.com/job-posting"
-
-# Match content to a job and generate a cover letter
-python coverletter_wiz.py match --job-id 1 --report --cover-letter
-```
-
-### Individual Component CLIs
-
-```bash
-# Rate content blocks in batch mode
-python -m coverletter_wiz.cli.rate_content --batch
-
-# Run tournament mode for comparing content blocks
-python -m coverletter_wiz.cli.rate_content --tournament
-
-# Run legends tournament for highest-rated content
-python -m coverletter_wiz.cli.rate_content --legends
-
-# Export high-rated content blocks to markdown
-python -m coverletter_wiz.cli.rate_content --export --min-rating 8.0
-
-# Analyze a job posting
-python -m coverletter_wiz.cli.analyze_job --url "https://example.com/job-posting"
-
-# Match content to a job and generate a cover letter
-python -m coverletter_wiz.cli.match_content --job-id 1 --report --cover-letter
 ```
 
 ## Content Rating System

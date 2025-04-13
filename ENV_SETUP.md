@@ -16,7 +16,7 @@ Key dependencies include:
 ## Data Structure
 The data is stored in a separate directory for privacy:
 - json/ (analyzed_jobs.json, cover_letter_content.json)
-- config/ (categories.yaml, category_expansions.yaml)
+- config/ (categories.yaml)
 - text-archive/ (text files)
 - exports/ (exported content)
 - reports/ (generated reports)

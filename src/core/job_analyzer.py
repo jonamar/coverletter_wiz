@@ -20,9 +20,10 @@ from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 import sys
 
+from src.config import DEFAULT_LLM_MODEL, DATA_DIR
+
 # Constants
-DEFAULT_OUTPUT_FILE = "data/json/analyzed_jobs.json"
-DEFAULT_LLM_MODEL = "gemma3:12b"
+DEFAULT_OUTPUT_FILE = os.path.join(DATA_DIR, "json/analyzed_jobs.json")
 
 class JobAnalyzer:
     """
@@ -44,7 +45,7 @@ class JobAnalyzer:
         self.llm_model = llm_model
         self.categories = self._load_categories()
         
-    def _load_categories(self, yaml_file: str = "data/config/categories.yaml") -> Dict:
+    def _load_categories(self, yaml_file: str = "config/categories.yaml") -> Dict:
         """
         Load categories from a YAML file.
         
@@ -57,6 +58,7 @@ class JobAnalyzer:
         try:
             # Try different potential paths
             paths_to_try = [
+                os.path.join(DATA_DIR, yaml_file),
                 yaml_file,
                 os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), yaml_file),
                 os.path.join(os.getcwd(), yaml_file)

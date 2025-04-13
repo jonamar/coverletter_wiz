@@ -18,7 +18,7 @@ import time
 import ollama
 from typing import Optional
 
-from src.config import DATA_DIR
+from src.config import DATA_DIR, DEFAULT_LLM_MODEL
 
 # Constants
 DEFAULT_JOBS_FILE = os.path.join(DATA_DIR, "json/analyzed_jobs.json")
@@ -36,7 +36,6 @@ SCORING_WEIGHTS = {
 
 # Ollama API settings
 OLLAMA_API_URL = "http://localhost:11434/api/generate"
-DEFAULT_LLM_MODEL = "gemma3:12b"
 
 class ContentMatcher:
     """
@@ -345,11 +344,13 @@ Use these excerpts to craft a cohesive, professional cover letter that highlight
 Guidelines:
 1. Organize the content in a clear, professional format with proper paragraphs
 2. Begin with a greeting and introduction
-3. Emphasize relevant skills and experiences from the provided excerpts
-4. Close with a call to action and contact information placeholder
-5. Keep the letter to 400-500 words maximum
-6. Don't use bullet points or numbered lists
-7. Do NOT mention specific companies by name except for the one being applied to
+3. IMPORTANT: Preserve the original phrasing and wording from the provided excerpts as much as possible
+4. Avoid duplicating content or repeating the same points multiple times
+5. Close with a call to action and contact information placeholder
+6. Keep the letter to 400-500 words maximum
+7. Don't use bullet points or numbered lists
+8. Do NOT mention specific companies by name except for the one being applied to
+9. Maintain the applicant's authentic voice by keeping their original expressions intact
 
 Write the full cover letter now:"""
 
