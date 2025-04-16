@@ -10,6 +10,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Future changes will be listed here before release
 
+## [0.2.7] - 2025-04-16
+
+### Added
+- Added `process` command to unified CLI for processing cover letters from text-archive
+- Integrated text processing functionality into the unified CLI structure
+
+### Changed
+- Updated text processing to use en_core_web_lg spaCy model by default for better NLP performance
+- Improved CLI help documentation with examples for the process command
+- Removed deprecated process command from legacy CLI while preserving other functionality
+
+## [0.2.6] - 2025-04-13
+
+### Added
+- Made preprocessed job text in reports optional with new --show-preprocessed-text flag
+- Added special handling for high-value product management tags
+
+### Changed
+- Improved tag prioritization with special rules for domain-specific tags
+- Ensured "prioritization" tag is always at least medium priority
+- Adjusted tag scoring weights for better relevance
+
+## [0.2.5] - 2025-04-13
+
+### Added
+- Added preprocessed job text section to reports for transparency
+- Enhanced job text preprocessing with better filtering of company descriptions and legal text
+
+### Changed
+- Further improved boilerplate detection for organization descriptions
+- Made text preprocessing more selective to focus on core job requirements
+
+## [0.2.4] - 2025-04-13
+
+### Added
+- Added job text preprocessing to filter out boilerplate and legal text
+- Improved tag prioritization with frequency-based scoring
+
+### Changed
+- Cleaned up categories.yaml to remove redundant tags
+- Made tag prioritization more selective with higher thresholds
+- Reduced the number of tags in each priority level for more focused results
+
+## [0.2.3] - 2025-04-13
+
+### Fixed
+- Fixed issue with duplicate content blocks appearing in generated reports
+- Improved content block deduplication while preserving all tag matches
+
 ## [0.2.2] - 2025-04-13
 
 ### Added
@@ -96,7 +145,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moved data storage to external directory for privacy
 - Updated data paths to reference external data location
 
-[Unreleased]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.7...HEAD
+[0.2.7]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.6...v0.2.7
+[0.2.6]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.5...v0.2.6
+[0.2.5]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.4...v0.2.5
+[0.2.4]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.3...v0.2.4
+[0.2.3]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/yourusername/coverletter_wiz/compare/v0.1.2...v0.2.0

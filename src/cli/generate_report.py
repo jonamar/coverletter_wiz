@@ -30,7 +30,7 @@ MIN_RATING_THRESHOLD = 8.0  # Minimum rating to consider a content block
 DEFAULT_CONTENT_WEIGHT = 2.0  # Default weight to give to content rating
 
 # Import locally to avoid circular imports
-from src.utils.spacy_utils import prioritize_tags_for_job, nlp, safe_similarity, has_vector, normalize_text, assign_tags_with_spacy
+from src.utils.spacy_utils import prioritize_tags_for_job, nlp, safe_similarity, has_vector, normalize_text, assign_tags_with_spacy, preprocess_job_text
 
 def add_keywords_to_categories(keywords, categories):
     """
@@ -106,7 +106,8 @@ def generate_report(job_id: str = None, job_url: str = None,
                    keywords: list = None,
                    save_keywords: bool = False,
                    min_rating: float = MIN_RATING_THRESHOLD,
-                   content_weight: float = DEFAULT_CONTENT_WEIGHT) -> str:
+                   content_weight: float = DEFAULT_CONTENT_WEIGHT,
+                   show_preprocessed_text: bool = False) -> str:
     """
     Generate a job match report.
     
@@ -119,6 +120,7 @@ def generate_report(job_id: str = None, job_url: str = None,
         save_keywords: Whether to save keywords to categories.yaml
         min_rating: Minimum rating threshold for content blocks
         content_weight: Weight to give to content rating (higher = prioritize rating more)
+        show_preprocessed_text: Whether to include preprocessed job text in the report
         
     Returns:
         Path to the generated report
@@ -192,11 +194,11 @@ def generate_report(job_id: str = None, job_url: str = None,
                         # Skip if doc_data is not a dictionary
                         if not isinstance(doc_data, dict):
                             continue
-                            
+                        
                         # Skip if content is not present or not a dictionary
                         if "content" not in doc_data or not isinstance(doc_data["content"], dict):
                             continue
-                            
+                        
                         # Skip if paragraphs is not present or not a list
                         if "paragraphs" not in doc_data["content"] or not isinstance(doc_data["content"]["paragraphs"], list):
                             continue
@@ -508,6 +510,31 @@ def generate_report(job_id: str = None, job_url: str = None,
         # Sort final list by score
         matching_blocks_list.sort(key=lambda x: x["raw_score"], reverse=True)
         
+        # Deduplicate blocks by content while preserving tag matches
+        deduplicated_blocks = {}
+        for match in matching_blocks_list:
+            content = match["block"].get("content", "")
+            if content in deduplicated_blocks:
+                # Merge tag matches from this duplicate into the existing entry
+                for priority in ["high", "medium", "low"]:
+                    for tag in match["matched_tags"][priority]:
+                        if tag not in deduplicated_blocks[content]["matched_tags"][priority]:
+                            deduplicated_blocks[content]["matched_tags"][priority].append(tag)
+                
+                # Keep the highest score
+                if match["raw_score"] > deduplicated_blocks[content]["raw_score"]:
+                    deduplicated_blocks[content]["raw_score"] = match["raw_score"]
+                    deduplicated_blocks[content]["score_percentage"] = match["score_percentage"]
+            else:
+                # Add new unique content block
+                deduplicated_blocks[content] = match
+        
+        # Convert back to list
+        matching_blocks_list = list(deduplicated_blocks.values())
+        
+        # Re-sort after deduplication
+        matching_blocks_list.sort(key=lambda x: x["raw_score"], reverse=True)
+        
         # Prepare report
         report = []
         
@@ -525,6 +552,20 @@ def generate_report(job_id: str = None, job_url: str = None,
         report.append("")
         report.append(job_summary)
         report.append("")
+        
+        # Add preprocessed job text section
+        if show_preprocessed_text:
+            processed_text, filtered_text = preprocess_job_text(job_text)
+            
+            report.append("## Preprocessed Job Text")
+            report.append("")
+            report.append("The following text was used for tag analysis after preprocessing:")
+            report.append("")
+            report.append("```")
+            # Show full preprocessed text without truncation
+            report.append(processed_text)
+            report.append("```")
+            report.append("")
         
         # Add job requirements (tags)
         report.append("## Job Requirements (Tags)")
@@ -733,6 +774,7 @@ def setup_argparse(parser=None):
     # Report options
     parser.add_argument("--no-cover-letter", action="store_true", help="Don't include a cover letter draft")
     parser.add_argument("--model", help=f"LLM model to use (default: {DEFAULT_LLM_MODEL})")
+    parser.add_argument("--show-preprocessed-text", action="store_true", help="Include preprocessed job text in the report")
     
     # Keyword options
     parser.add_argument("--keywords", help="Comma-separated list of keywords to prioritize")
@@ -770,7 +812,8 @@ def main(args=None):
         keywords=keywords,
         save_keywords=args.save_keywords,
         min_rating=args.min_rating,
-        content_weight=args.content_weight
+        content_weight=args.content_weight,
+        show_preprocessed_text=args.show_preprocessed_text
     )
 
 if __name__ == "__main__":

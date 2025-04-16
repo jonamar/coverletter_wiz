@@ -237,6 +237,12 @@ The Cover Letter Wizard provides a unified command-line interface for all functi
 # Show help and available commands
 ./coverletter --help
 
+# Process new cover letters from text-archive
+./coverletter process
+
+# Process all files (even unchanged ones)
+./coverletter process --force
+
 # Analyze a job posting
 ./coverletter analyze --url "https://example.com/job-posting"
 
@@ -257,13 +263,6 @@ Each subcommand has its own set of options that you can view with:
 
 ```bash
 ./coverletter <subcommand> --help
-```
-
-### Legacy CLI (Deprecated)
-
-```bash
-# Rate content blocks in batch mode (initial rating)
-python coverletter_wiz.py rate --batch
 ```
 
 ## Content Rating System

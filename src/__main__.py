@@ -17,7 +17,6 @@ sys.path.append(str(Path(__file__).parent.parent))
 from src.cli.rate_content import main as rate_content_main
 from src.cli.analyze_job import main as analyze_job_main
 from src.cli.match_content import main as match_content_main
-from src.cli.process_text import main as process_text_main
 
 def setup_argparse():
     """Set up the main argument parser for the application."""

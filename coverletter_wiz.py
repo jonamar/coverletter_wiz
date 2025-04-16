@@ -18,7 +18,6 @@ os.chdir(os.path.join(script_dir, 'src'))
 from src.cli.rate_content import main as rate_content_main
 from src.cli.analyze_job import main as analyze_job_main
 from src.cli.match_content import main as match_content_main
-from src.cli.process_text import main as process_text_main
 
 def setup_argparse():
     """Set up the main argument parser for the application."""
@@ -59,13 +58,6 @@ def setup_argparse():
     match_parser.add_argument("--list-models", action="store_true", help="List available Ollama models")
     match_parser.add_argument("--multi-model", action="store_true", help="Run analysis with multiple LLM models")
     match_parser.add_argument("--models", type=str, help="Comma-separated list of LLM models to use with --multi-model")
-    
-    # Text processing command
-    process_parser = subparsers.add_parser("process", help="Process cover letter text files")
-    process_parser.add_argument("--force", action="store_true", help="Force reprocessing of all files even if unchanged")
-    process_parser.add_argument("--archive-dir", type=str, help="Directory containing text files to process")
-    process_parser.add_argument("--output-file", type=str, help="Output JSON file for processed content")
-    process_parser.add_argument("--model", type=str, default="en_core_web_md", help="spaCy model to use for NLP processing")
     
     return parser
 
@@ -139,19 +131,6 @@ def main():
         if args.models:
             sys.argv.extend(["--models", args.models])
         match_content_main()
-    
-    elif args.command == "process":
-        # Convert args to the format expected by process_text_main
-        sys.argv = [sys.argv[0]]
-        if args.force:
-            sys.argv.append("--force")
-        if args.archive_dir:
-            sys.argv.extend(["--archive-dir", args.archive_dir])
-        if args.output_file:
-            sys.argv.extend(["--output-file", args.output_file])
-        if args.model:
-            sys.argv.extend(["--model", args.model])
-        process_text_main()
     
     # Restore sys.argv
     sys.argv = old_argv

@@ -98,27 +98,8 @@ def extract_tags_from_text(text: str) -> List[str]:
     # Extract noun chunks that might be skills or technologies
     noun_chunks = [chunk.text.lower() for chunk in doc.noun_chunks if len(chunk.text.split()) <= 3]
     
-    # Extract specific skill keywords
-    skill_patterns = [
-        r'\b(agile|scrum|kanban|waterfall)\b',
-        r'\b(aws|azure|gcp|cloud)\b',
-        r'\b(python|java|javascript|typescript|ruby|php|c\+\+|c#|html|css)\b',
-        r'\b(sql|postgresql|mysql|mongodb|nosql|database)\b',
-        r'\b(api|rest|graphql|oauth)\b',
-        r'\b(git|github|gitlab|bitbucket|version control)\b',
-        r'\b(docker|kubernetes|container|k8s)\b',
-        r'\b(ci/cd|jenkins|github actions|gitlab ci)\b',
-        r'\b(leadership|management|mentoring|coaching)\b',
-        r'\b(testing|tdd|bdd|unittest|pytest|jest)\b'
-    ]
-    
-    skills = []
-    for pattern in skill_patterns:
-        matches = re.findall(pattern, text.lower())
-        skills.extend(matches)
-    
     # Combine all potential tags
-    all_tags = entities + noun_chunks + skills
+    all_tags = entities + noun_chunks
     
     # Remove duplicates and normalize
     unique_tags = set()
@@ -154,6 +135,9 @@ def prioritize_tags_for_job(job_text: str, categories: Dict, manual_keywords: Di
     if not nlp:
         return {"high_priority": [], "medium_priority": [], "low_priority": []}
     
+    # Preprocess job text to focus on the most relevant parts
+    job_text, filtered_text = preprocess_job_text(job_text)
+    
     # Process the job text with spaCy
     job_doc = nlp(normalize_text(job_text))
     
@@ -173,13 +157,19 @@ def prioritize_tags_for_job(job_text: str, categories: Dict, manual_keywords: Di
     # Now also score individual tags within each category
     tag_scores = {}
     tag_to_category = {}
+    tag_frequency = {}  # Track frequency of tag mentions
     
     for category, tags in categories.items():
         for tag in tags:
             # Normalize tag text
             tag_text = normalize_text(tag)
+            
+            # Count occurrences of tag in job text (case insensitive)
+            tag_mentions = len(re.findall(r'\b' + re.escape(tag_text) + r'\b', normalize_text(job_text).lower()))
+            tag_frequency[tag] = tag_mentions
+            
+            # Calculate semantic similarity
             tag_doc = nlp(tag_text)
-            # Calculate similarity between job text and tag
             similarity = safe_similarity(job_doc, tag_doc, default_score=0.0)
             
             # Store the tag's score and its parent category
@@ -192,9 +182,15 @@ def prioritize_tags_for_job(job_text: str, categories: Dict, manual_keywords: Di
     for tag, score in tag_scores.items():
         category = tag_to_category[tag]
         category_score = category_scores.get(category, 0)
+        frequency = tag_frequency.get(tag, 0)
         
-        # Weighted combination of tag and category scores
-        combined_scores[tag] = (score * 0.8) + (category_score * 0.4)
+        # Frequency boost: more significant boost for multiple mentions
+        # This naturally prioritizes terms that appear frequently in the job description
+        frequency_boost = min(0.6, frequency * 0.15)
+        
+        # Weighted combination of tag score, category score, and frequency
+        # Increased weight on frequency to naturally prioritize mentioned terms
+        combined_scores[tag] = (score * 0.6) + (category_score * 0.2) + (frequency_boost * 0.2)
     
     # Sort tags by combined score
     sorted_tags = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
@@ -203,18 +199,28 @@ def prioritize_tags_for_job(job_text: str, categories: Dict, manual_keywords: Di
     if sorted_tags:
         scores = [score for _, score in sorted_tags]
         max_score = max(scores)
-        high_threshold = max_score * 0.75
-        medium_threshold = max_score * 0.5
+        
+        # Use dynamic thresholds based on the score distribution
+        # This adapts to different jobs with different score patterns
+        if len(scores) >= 10:
+            # Use percentile-based thresholds if we have enough tags
+            scores_sorted = sorted(scores, reverse=True)
+            high_threshold = scores_sorted[int(len(scores_sorted) * 0.15)]  # Top 15%
+            medium_threshold = scores_sorted[int(len(scores_sorted) * 0.4)]  # Top 40%
+        else:
+            # Fall back to relative thresholds for smaller sets
+            high_threshold = max_score * 0.75
+            medium_threshold = max_score * 0.5
         
         # Assign tags to priority levels based on thresholds
         high_priority = [tag for tag, score in sorted_tags if score >= high_threshold]
         medium_priority = [tag for tag, score in sorted_tags if high_threshold > score >= medium_threshold]
-        low_priority = [tag for tag, score in sorted_tags if medium_threshold > score > 0.3]  # Minimum threshold
+        low_priority = [tag for tag, score in sorted_tags if medium_threshold > score > 0.3]
         
-        # Limit the number of tags in each priority level
-        high_priority = high_priority[:7]  # Allow more high-priority tags
-        medium_priority = medium_priority[:10]
-        low_priority = low_priority[:12]
+        # More restrictive limits on number of tags
+        high_priority = high_priority[:5]
+        medium_priority = medium_priority[:8]
+        low_priority = low_priority[:10]
     else:
         high_priority = []
         medium_priority = []
@@ -242,6 +248,147 @@ def prioritize_tags_for_job(job_text: str, categories: Dict, manual_keywords: Di
         "medium_priority": medium_priority,
         "low_priority": low_priority
     }
+
+def preprocess_job_text(job_text: str) -> Tuple[str, str]:
+    """
+    Preprocess job text to focus on the most relevant parts.
+    
+    This function:
+    1. Identifies and removes common boilerplate sections
+    2. Filters out legal disclaimers and application instructions
+    3. Preserves the core job description, requirements, and responsibilities
+    
+    Args:
+        job_text: Raw job posting text
+        
+    Returns:
+        Tuple of (processed_text, filtered_text) where:
+        - processed_text is the cleaned text for analysis
+        - filtered_text contains the parts that were removed (for verification)
+    """
+    # Original text for comparison
+    original_text = job_text
+    
+    # Common section headers in job postings
+    core_section_patterns = [
+        r'(?i)responsibilities',
+        r'(?i)requirements',
+        r'(?i)qualifications',
+        r'(?i)what you\'ll do',
+        r'(?i)what we\'re looking for',
+        r'(?i)about the role',
+        r'(?i)job description',
+        r'(?i)key responsibilities',
+        r'(?i)essential functions',
+        r'(?i)you are responsible for',
+        r'(?i)you will be responsible for',
+        r'(?i)you are accountable for',
+        r'(?i)the ideal candidate',
+        r'(?i)skills and experience',
+        r'(?i)required skills',
+        r'(?i)preferred skills'
+    ]
+    
+    # Boilerplate section patterns to remove
+    boilerplate_patterns = [
+        r'(?i)about (us|the company|our company|the .* foundation)',
+        r'(?i)benefits',
+        r'(?i)perks',
+        r'(?i)compensation',
+        r'(?i)equal opportunity employer',
+        r'(?i)how to apply',
+        r'(?i)application process',
+        r'(?i)we are an equal opportunity',
+        r'(?i)we do not discriminate',
+        r'(?i)applicant privacy',
+        r'(?i)legal disclaimer',
+        r'(?i)privacy policy',
+        r'(?i)terms of use',
+        r'(?i)salary range',
+        r'(?i)united states 501\(c\)\(3\)',
+        r'(?i)tax-exempt organization',
+        r'(?i)charitable',
+        r'(?i)not-for-profit'
+    ]
+    
+    # Try to identify sections by common headers
+    sections = {}
+    current_section = "header"
+    sections[current_section] = []
+    
+    # Split text into lines for processing
+    lines = job_text.split('\n')
+    
+    # Process line by line to identify sections
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Check if this line is a section header
+        is_section_header = False
+        
+        # Core section headers
+        for pattern in core_section_patterns:
+            if re.search(pattern, line, re.IGNORECASE) and len(line) < 100:  # Avoid matching long paragraphs
+                current_section = "core"
+                is_section_header = True
+                break
+                
+        # Boilerplate section headers
+        if not is_section_header:
+            for pattern in boilerplate_patterns:
+                if re.search(pattern, line, re.IGNORECASE) and len(line) < 100:
+                    current_section = "boilerplate"
+                    is_section_header = True
+                    break
+        
+        # Add line to current section
+        if current_section not in sections:
+            sections[current_section] = []
+        sections[current_section].append(line)
+    
+    # Additional filtering for specific problematic sections
+    # Look for "About the Wikimedia Foundation" section and similar
+    filtered_lines = []
+    for i, line in enumerate(lines):
+        if re.search(r'(?i)about the (wikimedia|wikipedia) foundation', line):
+            # Mark this and subsequent lines as filtered until we hit a core section header
+            j = i
+            while j < len(lines):
+                # Stop if we hit a core section header
+                if any(re.search(pattern, lines[j], re.IGNORECASE) for pattern in core_section_patterns):
+                    break
+                filtered_lines.append(lines[j])
+                j += 1
+    
+    # If we couldn't identify clear sections, use a heuristic approach
+    if "core" not in sections or len(sections.get("core", [])) < 100:
+        # Use the first 60% of the text as it usually contains the most relevant info
+        # This is more restrictive than before (was 70%)
+        text_length = len(job_text)
+        core_text = job_text[:int(text_length * 0.6)]
+        boilerplate_text = job_text[int(text_length * 0.6):]
+    else:
+        # Combine identified sections
+        core_text = "\n".join(sections.get("core", []))
+        header_text = "\n".join(sections.get("header", []))
+        boilerplate_text = "\n".join(sections.get("boilerplate", []))
+        
+        # Include header text if it's not too long (likely contains job title and summary)
+        if len(header_text) < 500:
+            core_text = header_text + "\n" + core_text
+    
+    # Remove any filtered lines from core_text
+    for line in filtered_lines:
+        core_text = core_text.replace(line, "")
+    
+    # Final check - if we've removed too much, revert to original
+    if len(core_text) < len(job_text) * 0.25:
+        core_text = job_text
+        boilerplate_text = ""
+    
+    return core_text, boilerplate_text
 
 def get_related_tags(tag: str, all_tags: List[str]) -> List[str]:
     """

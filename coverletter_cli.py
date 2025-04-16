@@ -19,6 +19,7 @@ from src.cli import analyze_job
 from src.cli import match_content
 from src.cli import export_content
 from src.cli import generate_report
+from src.cli import process_content
 
 def main():
     """Main entry point for the coverletter_wiz CLI."""
@@ -29,6 +30,13 @@ def main():
     
     # Create subparsers for each command
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
+    
+    # Process content command
+    process_parser = subparsers.add_parser(
+        "process", 
+        help="Process new cover letters from the text-archive directory"
+    )
+    process_content.setup_argparse(process_parser)
     
     # Analyze job command
     analyze_parser = subparsers.add_parser(
@@ -67,7 +75,9 @@ def main():
         return
     
     # Run the appropriate command
-    if args.command == "analyze":
+    if args.command == "process":
+        process_content.main(args)
+    elif args.command == "analyze":
         analyze_job.main(args)
     elif args.command == "match":
         match_content.main(args)

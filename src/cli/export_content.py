@@ -65,28 +65,55 @@ def export_high_rated_content(min_rating: float = DEFAULT_MIN_RATING,
                         high_rated_blocks.append({
                             "text": block.get("text", ""),
                             "rating": rating,
-                            "tags": block.get("tags", []),
+                            "tags": block.get("tags", []) + block.get("primary_tags", []),
                             "source": source
                         })
         
-        # Sort blocks by rating (highest first)
-        high_rated_blocks.sort(key=lambda x: x["rating"], reverse=True)
+        # Group blocks by text to eliminate duplicates
+        unique_blocks = {}
+        for block in high_rated_blocks:
+            text = block["text"]
+            if text in unique_blocks:
+                # Update existing block with higher rating if applicable
+                if block["rating"] > unique_blocks[text]["rating"]:
+                    unique_blocks[text]["rating"] = block["rating"]
+                
+                # Add source if not already present
+                if block["source"] not in unique_blocks[text]["sources"]:
+                    unique_blocks[text]["sources"].append(block["source"])
+                
+                # Add new tags if not already present
+                for tag in block["tags"]:
+                    if tag not in unique_blocks[text]["tags"]:
+                        unique_blocks[text]["tags"].append(tag)
+            else:
+                # Create new entry for this text
+                unique_blocks[text] = {
+                    "text": text,
+                    "rating": block["rating"],
+                    "tags": block["tags"],
+                    "sources": [block["source"]]
+                }
+        
+        # Convert dictionary back to list and sort by rating
+        deduplicated_blocks = list(unique_blocks.values())
+        deduplicated_blocks.sort(key=lambda x: x["rating"], reverse=True)
         
         # Add blocks to report
-        if not high_rated_blocks:
+        if not deduplicated_blocks:
             report.append(f"No content blocks found with rating >= {min_rating}.")
         else:
-            report.append(f"Found {len(high_rated_blocks)} high-rated content blocks.")
+            report.append(f"Found {len(deduplicated_blocks)} unique high-rated content blocks (from {len(high_rated_blocks)} total blocks).")
             report.append("")
             
-            for i, block in enumerate(high_rated_blocks, 1):
+            for i, block in enumerate(deduplicated_blocks, 1):
                 report.append(f"## {i}. Rating: {block['rating']:.1f}")
                 report.append("")
                 report.append(f"> {block['text']}")
                 report.append("")
                 report.append("**Tags:** " + ", ".join(block["tags"]))
                 report.append("")
-                report.append(f"**Source:** {block['source']}")
+                report.append("**Sources:** " + ", ".join(block["sources"]))
                 report.append("")
         
         # Create exports directory if it doesn't exist
@@ -103,7 +130,7 @@ def export_high_rated_content(min_rating: float = DEFAULT_MIN_RATING,
             f.write(report_content)
         
         # Print preview
-        print(f"Exported {len(high_rated_blocks)} high-rated content blocks to {output_file}")
+        print(f"Exported {len(deduplicated_blocks)} unique high-rated content blocks to {output_file}")
         
         return output_file
     
