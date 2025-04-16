@@ -20,6 +20,7 @@ from src.cli import match_content
 from src.cli import export_content
 from src.cli import generate_report
 from src.cli import process_content
+from src.cli import rate_content_unified
 
 def main():
     """Main entry point for the coverletter_wiz CLI."""
@@ -37,6 +38,13 @@ def main():
         help="Process new cover letters from the text-archive directory"
     )
     process_content.setup_argparse(process_parser)
+    
+    # Rate content command
+    rate_parser = subparsers.add_parser(
+        "rate", 
+        help="Rate and manage cover letter content blocks"
+    )
+    rate_content_unified.setup_argparse(rate_parser)
     
     # Analyze job command
     analyze_parser = subparsers.add_parser(
@@ -77,6 +85,8 @@ def main():
     # Run the appropriate command
     if args.command == "process":
         process_content.main(args)
+    elif args.command == "rate":
+        rate_content_unified.main(args)
     elif args.command == "analyze":
         analyze_job.main(args)
     elif args.command == "match":

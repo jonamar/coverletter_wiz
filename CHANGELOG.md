@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Future changes will be listed here before release
 
+## [0.3.0] - 2025-04-16
+
+### Added
+- Added `rate` command to unified CLI for managing content ratings
+- Integrated comprehensive rating functionality including batch rating, tournament mode, and legends tournament
+- Added ability to view content statistics through the unified CLI
+
+### Changed
+- Updated README with examples for the rate command and its options
+- Maintained text editing capabilities during rating process
+
 ## [0.2.7] - 2025-04-16
 
 ### Added
@@ -145,7 +156,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moved data storage to external directory for privacy
 - Updated data paths to reference external data location
 
-[Unreleased]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.7...HEAD
+[Unreleased]: https://github.com/yourusername/coverletter_wiz/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.7...v0.3.0
 [0.2.7]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.4...v0.2.5

@@ -243,6 +243,18 @@ The Cover Letter Wizard provides a unified command-line interface for all functi
 # Process all files (even unchanged ones)
 ./coverletter process --force
 
+# Rate content blocks in batch mode (initial rating)
+./coverletter rate --batch
+
+# Compare content blocks in tournament mode
+./coverletter rate --tournament
+
+# Run legends tournament for top-rated content (10.0+)
+./coverletter rate --legends
+
+# Show content block statistics
+./coverletter rate --stats
+
 # Analyze a job posting
 ./coverletter analyze --url "https://example.com/job-posting"
 
