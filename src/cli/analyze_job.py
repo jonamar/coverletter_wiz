@@ -6,10 +6,13 @@ This script provides a CLI for analyzing job postings, extracting key informatio
 using spaCy and a local LLM, and storing the results.
 """
 
+from __future__ import annotations
+
 import argparse
 import sys
 import os
 from pathlib import Path
+from typing import Optional, List, Tuple, Dict, Any
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -17,8 +20,16 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from src.core.job_analyzer import JobAnalyzer
 from src.config import DEFAULT_LLM_MODEL, DATA_DIR
 
-def setup_argparse(parser=None):
-    """Set up argument parser for the CLI."""
+def setup_argparse(parser: Optional[argparse.ArgumentParser] = None) -> argparse.ArgumentParser:
+    """Sets up and configures the argument parser for the job analyzer CLI.
+    
+    Args:
+        parser: Optional pre-existing ArgumentParser instance. If None, a new 
+            parser will be created.
+            
+    Returns:
+        argparse.ArgumentParser: Configured argument parser ready for parsing arguments.
+    """
     if parser is None:
         parser = argparse.ArgumentParser(description="Analyze job postings and extract key information.")
     
@@ -39,8 +50,21 @@ def setup_argparse(parser=None):
     
     return parser
 
-def main(args=None):
-    """Run the job analyzer CLI."""
+def main(args: Optional[argparse.Namespace] = None) -> None:
+    """Runs the job analyzer CLI with the provided arguments.
+    
+    This function handles the main execution flow of the job analyzer CLI,
+    processing command-line arguments and performing the requested operations
+    such as analyzing job postings, listing analyzed jobs, or displaying
+    specific job details.
+    
+    Args:
+        args: Optional pre-parsed command line arguments. If None, arguments 
+            will be parsed from sys.argv.
+            
+    Returns:
+        None
+    """
     if args is None:
         parser = setup_argparse()
         args = parser.parse_args()

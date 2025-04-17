@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Future changes will be listed here before release
 
+## [0.1.3] - 2025-04-17
+
+### Changed
+- Enhanced documentation across all core and utility modules
+- Added comprehensive type annotations to improve code quality
+- Updated config.py with improved type safety and documentation
+
+### Improved
+- Implemented Google-style docstrings in core and utility files
+- Maintained existing functionality while improving code readability
+
 ## [1.0.0] - 2025-04-17
 
 ### Changed

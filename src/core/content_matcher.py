@@ -6,17 +6,21 @@ This module finds the best content blocks from cover letters that match
 the tags in a job posting, organized by priority level.
 """
 
+from __future__ import annotations
+
 import json
 import spacy
 import os
-from pathlib import Path
-from datetime import datetime
-from typing import Dict, List, Tuple, Set
-from collections import defaultdict
 import re
 import time
+import traceback
+from pathlib import Path
+from datetime import datetime
+from typing import Dict, List, Tuple, Set, Optional, Any, Union, DefaultDict
+from collections import defaultdict
+
 import ollama
-from typing import Optional
+import requests
 
 from src.config import DATA_DIR, DEFAULT_LLM_MODEL
 
@@ -38,23 +42,36 @@ SCORING_WEIGHTS = {
 OLLAMA_API_URL = "http://localhost:11434/api/generate"
 
 class ContentMatcher:
-    """
-    Core class for matching content blocks to job requirements.
+    """Core class for matching content blocks to job requirements.
     
     This class finds the best content blocks from cover letters that match
-    the tags in a job posting, organized by priority level.
+    the tags in a job posting, organized by priority level. It provides methods
+    for content matching, cover letter generation, and report creation.
+    
+    Attributes:
+        jobs_file: Path to the JSON file containing analyzed jobs.
+        content_file: Path to the JSON file containing content blocks.
+        llm_model: Default LLM model to use for cover letter generation.
+        jobs_data: Loaded job data from the jobs_file.
+        content_data: Loaded content data from the content_file.
+        sequential_jobs: Job data with sequential IDs for easier reference.
+        rated_content_blocks: Processed list of all rated content blocks.
     """
     
-    def __init__(self, jobs_file: str = DEFAULT_JOBS_FILE, 
-                 content_file: str = DEFAULT_CONTENT_FILE,
-                 llm_model: str = DEFAULT_LLM_MODEL):
-        """
-        Initialize the ContentMatcher.
+    def __init__(self, 
+                jobs_file: str = DEFAULT_JOBS_FILE, 
+                content_file: str = DEFAULT_CONTENT_FILE,
+                llm_model: str = DEFAULT_LLM_MODEL) -> None:
+        """Initializes the ContentMatcher with job and content data.
         
         Args:
-            jobs_file (str): Path to the JSON file containing analyzed jobs
-            content_file (str): Path to the JSON file containing content blocks
-            llm_model (str): Default LLM model to use for cover letter generation
+            jobs_file: Path to the JSON file containing analyzed jobs.
+            content_file: Path to the JSON file containing content blocks.
+            llm_model: Default LLM model to use for cover letter generation.
+            
+        Raises:
+            FileNotFoundError: If either the jobs_file or content_file cannot be found.
+            json.JSONDecodeError: If either file contains invalid JSON.
         """
         self.jobs_file = jobs_file
         self.content_file = content_file
@@ -64,12 +81,15 @@ class ContentMatcher:
         self.sequential_jobs = self._update_job_ids(self.jobs_data)
         self.rated_content_blocks = self._get_all_rated_content_blocks()
         
-    def _load_jobs(self) -> Dict:
-        """
-        Load job data from JSON file.
+    def _load_jobs(self) -> Dict[str, Any]:
+        """Loads job data from JSON file.
         
         Returns:
-            Dict: Job data
+            Dictionary containing job data with 'jobs' key containing a list of job objects.
+            
+        Raises:
+            FileNotFoundError: If the jobs file doesn't exist.
+            json.JSONDecodeError: If the file contains invalid JSON.
         """
         try:
             with open(self.jobs_file, 'r') as f:
@@ -78,12 +98,15 @@ class ContentMatcher:
             print(f"Error: File {self.jobs_file} not found.")
             return {"jobs": []}
     
-    def _load_content(self) -> Dict:
-        """
-        Load content data from JSON file.
+    def _load_content(self) -> Dict[str, Any]:
+        """Loads content data from JSON file.
         
         Returns:
-            Dict: Content data
+            Dictionary mapping document IDs to their content data.
+            
+        Raises:
+            FileNotFoundError: If the content file doesn't exist.
+            json.JSONDecodeError: If the file contains invalid JSON.
         """
         try:
             with open(self.content_file, 'r') as f:
@@ -92,15 +115,17 @@ class ContentMatcher:
             print(f"Error: File {self.content_file} not found.")
             return {}
     
-    def _update_job_ids(self, jobs_data: Dict) -> Dict:
-        """
-        Update job IDs to be sequential numbers instead of UUIDs.
+    def _update_job_ids(self, jobs_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Updates job IDs to be sequential numbers instead of UUIDs.
+        
+        Converts the original UUID-based job IDs to sequential numeric IDs
+        for easier reference, while preserving the original IDs.
         
         Args:
-            jobs_data: Original jobs data
+            jobs_data: Original jobs data dictionary with 'jobs' list.
             
         Returns:
-            Dict: Updated jobs data with sequential IDs
+            Updated jobs data dictionary with sequential IDs and an ID mapping.
         """
         updated_jobs = {"jobs": []}
         id_mapping = {}  # Map original UUIDs to new sequential IDs
@@ -121,12 +146,15 @@ class ContentMatcher:
         
         return updated_jobs
     
-    def _get_all_rated_content_blocks(self) -> List[Dict]:
-        """
-        Extract all content blocks with ratings from the processed cover letters.
+    def _get_all_rated_content_blocks(self) -> List[Dict[str, Any]]:
+        """Extracts all content blocks with ratings from the processed cover letters.
+        
+        Filters content blocks to include only those with ratings above the minimum
+        threshold (MIN_RATING_THRESHOLD) and sorts them by rating in descending order.
         
         Returns:
-            List[Dict]: List of content block objects with text, rating, tags
+            List of content block dictionaries, each containing text, rating, tags, source,
+            and other metadata for content matching.
         """
         all_blocks = []
         
@@ -161,15 +189,23 @@ class ContentMatcher:
         all_blocks.sort(key=lambda x: x.get("rating", 0), reverse=True)
         return all_blocks
     
-    def find_matching_content(self, job_id: int) -> Dict:
-        """
-        Find content blocks that match job tags, organized by block rather than tag.
+    def find_matching_content(self, job_id: int) -> Dict[str, Any]:
+        """Finds content blocks that match job tags, organized by block rather than tag.
+        
+        This method matches content blocks to job tags from the specified job,
+        calculating a match score based on tag priorities and returning a sorted
+        list of the best matching content blocks.
         
         Args:
-            job_id: Sequential ID of the job to analyze
+            job_id: Sequential ID of the job to analyze.
             
         Returns:
-            Dict: Dict with matched content blocks and tag information
+            Dictionary containing:
+                - 'matches': List of matching content blocks with scores and matched tags
+                - 'job': The job object data
+                
+        Raises:
+            ValueError: If job with the specified ID is not found.
         """
         # Find the job by its sequential ID
         job = next((j for j in self.sequential_jobs["jobs"] if j["id"] == job_id), None)
@@ -183,7 +219,7 @@ class ContentMatcher:
         low_priority_tags = job.get("tags", {}).get("low_priority", [])
         
         # Track content blocks that match tags
-        content_matches = defaultdict(dict)  # Maps content text to match info
+        content_matches: DefaultDict[str, Dict[str, Any]] = defaultdict(dict)  # Maps content text to match info
         
         # Find all tag matches for each content block
         for block in self.rated_content_blocks:
@@ -247,16 +283,18 @@ class ContentMatcher:
         
         return {"matches": matches_list, "job": job}
     
-    def query_ollama(self, prompt: str, model: str = None) -> str:
-        """
-        Query the Ollama API with a prompt.
+    def query_ollama(self, prompt: str, model: Optional[str] = None) -> str:
+        """Queries the Ollama API with a prompt.
         
         Args:
-            prompt: The prompt to send to the Ollama API
-            model: The model to use for generation
+            prompt: The prompt text to send to the Ollama API.
+            model: The model to use for generation. If None, uses the default model.
             
         Returns:
-            str: The generated text
+            Generated text response from the LLM.
+            
+        Raises:
+            RuntimeError: If there are connection issues with Ollama.
         """
         if model is None:
             model = self.llm_model
@@ -274,14 +312,17 @@ class ContentMatcher:
             return f"Error generating text: {str(e)}"
     
     def clean_cover_letter(self, text: str) -> str:
-        """
-        Clean the cover letter text by removing 'think' sections and other artifacts.
+        """Cleans the cover letter text by removing 'think' sections and other artifacts.
+        
+        Performs text cleanup by removing various formatting artifacts that might
+        be present in the generated text, such as thinking sections, comments,
+        and excessive newlines.
         
         Args:
-            text: The raw cover letter text
+            text: The raw cover letter text to clean.
             
         Returns:
-            str: Cleaned cover letter text
+            Cleaned cover letter text.
         """
         # Remove thinking sections
         text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
@@ -296,18 +337,22 @@ class ContentMatcher:
         return text.strip()
     
     def generate_cover_letter(self, job_id: int, print_prompt_only: bool = False) -> str:
-        """
-        Generate a cover letter draft using the top-matching content blocks.
+        """Generates a cover letter draft using the top-matching content blocks.
         
-        This uses a local LLM through Ollama to create a cover letter draft
-        based on the matched content blocks.
+        This method uses a local LLM through Ollama to create a cover letter draft
+        based on the job details and best-matching content blocks from the user's
+        content database.
         
         Args:
-            job_id: Sequential ID of the job to analyze
-            print_prompt_only: If True, return the prompt instead of generating a cover letter
+            job_id: Sequential ID of the job to analyze.
+            print_prompt_only: If True, return the prompt instead of generating a cover letter.
             
         Returns:
-            str: Generated cover letter or prompt
+            Generated cover letter text or the prompt if print_prompt_only is True.
+            
+        Raises:
+            ValueError: If job with the specified ID is not found.
+            RuntimeError: If there are issues with the Ollama connection or model.
         """
         # Get job info and matching content
         matches_data = self.find_matching_content(job_id)
@@ -396,24 +441,23 @@ Write the full cover letter now:"""
             # Runtime errors have already been formatted with helpful messages
             return f"Error generating cover letter: {e}"
         except Exception as e:
-            import traceback
             traceback_str = traceback.format_exc()
             print(f"Unexpected error generating cover letter: {e}")
             print(f"Error type: {type(e).__name__}")
             print(traceback_str)
             return f"Error generating cover letter: An unexpected error occurred: {e}"
     
-    def _get_top_content_by_category(self, matches: List[Dict], top_n: int = 3) -> Dict:
-        """
-        Get the top N content blocks for each tag priority category.
+    def _get_top_content_by_category(self, matches: List[Dict[str, Any]], top_n: int = 3) -> Dict[str, List[Dict[str, Any]]]:
+        """Gets the top N content blocks for each tag priority category.
+        
         Each block will appear only once in the highest priority category it matches.
         
         Args:
-            matches: List of matched content blocks
-            top_n: Number of top blocks to return for each category
+            matches: List of matched content blocks.
+            top_n: Number of top blocks to return for each category.
             
         Returns:
-            Dict with top blocks organized by priority category
+            Dictionary with top blocks organized by priority category (high, medium, low).
         """
         # Initialize result structure
         top_by_category = {
@@ -423,7 +467,7 @@ Write the full cover letter now:"""
         }
         
         # Track which blocks have been assigned to a category
-        assigned_blocks = set()
+        assigned_blocks: Set[str] = set()
         
         # First pass: assign blocks to high priority category
         for block in matches:
@@ -463,15 +507,14 @@ Write the full cover letter now:"""
         
         return top_by_category
     
-    def _format_content_for_prompt(self, blocks: List[Dict]) -> str:
-        """
-        Format content blocks for the LLM prompt.
+    def _format_content_for_prompt(self, blocks: List[Dict[str, Any]]) -> str:
+        """Formats content blocks for the LLM prompt.
         
         Args:
-            blocks: List of content blocks
+            blocks: List of content blocks to format.
             
         Returns:
-            str: Formatted content blocks
+            Formatted string containing all content blocks with their ratings and scores.
         """
         if not blocks:
             return "No matching content blocks found."
@@ -486,16 +529,21 @@ Write the full cover letter now:"""
     
     def generate_markdown_report(self, job_id: int, include_cover_letter: bool = False,
                                 print_prompt_only: bool = False) -> str:
-        """
-        Generate a markdown report for the job matches.
+        """Generates a markdown report for the job matches.
+        
+        Creates a comprehensive markdown report containing job details, requirements (tags),
+        matching content blocks organized by match score, and optionally a cover letter draft.
         
         Args:
-            job_id: Sequential ID of the job to analyze
-            include_cover_letter: Whether to include a cover letter draft
-            print_prompt_only: If True, print the prompt instead of generating a cover letter
+            job_id: Sequential ID of the job to analyze.
+            include_cover_letter: Whether to include a cover letter draft in the report.
+            print_prompt_only: Whether to print the LLM prompt instead of generating a cover letter.
             
         Returns:
-            str: Markdown content
+            Markdown formatted string containing the complete report.
+            
+        Raises:
+            ValueError: If job with the specified ID is not found.
         """
         # Find matching content
         matches_data = self.find_matching_content(job_id)
@@ -659,13 +707,19 @@ Write the full cover letter now:"""
     
     def save_markdown_report(self, job_id: int, include_cover_letter: bool = False,
                            print_prompt_only: bool = False) -> None:
-        """
-        Generate and save a markdown report for a specific job.
+        """Generates and saves a markdown report for a specific job.
+        
+        Creates a comprehensive report for the specified job and saves it to the 
+        reports directory in the external data repository.
         
         Args:
-            job_id: Sequential ID of the job to analyze
-            include_cover_letter: Whether to include a cover letter draft
-            print_prompt_only: Whether to print the LLM prompt instead of generating a cover letter
+            job_id: Sequential ID of the job to analyze.
+            include_cover_letter: Whether to include a cover letter draft in the report.
+            print_prompt_only: Whether to print the LLM prompt instead of generating a cover letter.
+            
+        Raises:
+            ValueError: If job with the specified ID is not found.
+            OSError: If unable to create the reports directory or write the report file.
         """
         # Find matching content
         matches_data = self.find_matching_content(job_id)
@@ -699,7 +753,11 @@ Write the full cover letter now:"""
         print(f"Report saved to {report_file}")
     
     def list_available_jobs(self) -> None:
-        """List all available jobs with their sequential IDs."""
+        """Lists all available jobs with their sequential IDs.
+        
+        Prints a formatted table of all available jobs to the console, including
+        their sequential IDs, organization names, and job titles.
+        """
         print("\nAvailable Jobs:")
         print("ID | Organization | Job Title")
         print("-" * 50)
@@ -708,16 +766,19 @@ Write the full cover letter now:"""
             print(f"{job['id']:2d} | {job.get('org_name', 'Unknown'):<15} | {job.get('job_title', 'Unknown')}")
     
     def list_available_models(self) -> List[str]:
-        """
-        List all available Ollama models.
+        """Lists all available Ollama models.
+        
+        Queries the Ollama API to get a list of all available models,
+        printing them to the console and returning them as a list.
         
         Returns:
-            List[str]: List of available model names
+            List of available model names sorted alphabetically.
+            
+        Raises:
+            RuntimeError: If unable to connect to Ollama.
+            requests.RequestException: If there's an error in the HTTP request.
         """
         try:
-            import json
-            import requests
-            
             # Call Ollama API to list models
             response = requests.get("http://localhost:11434/api/tags")
             
@@ -732,17 +793,32 @@ Write the full cover letter now:"""
             print(f"Error listing models: {e}")
             return []
     
-    def get_job_by_id(self, job_id: int) -> Optional[Dict]:
-        """
-        Get a job by its sequential ID.
+    def get_job_by_id(self, job_id: int) -> Optional[Dict[str, Any]]:
+        """Gets a job by its sequential ID.
         
         Args:
-            job_id (int): Sequential ID of the job
+            job_id: Sequential ID of the job to retrieve.
         
         Returns:
-            Optional[Dict]: Job data or None if not found
+            Job data dictionary if found, None otherwise.
         """
         for job in self.sequential_jobs.get("jobs", []):
             if job.get("id") == job_id:
                 return job
         return None
+        
+    def set_priority_weights(self, high: float = 0.5, medium: float = 0.3, low: float = 0.2) -> None:
+        """Sets the scoring weights for different priority levels.
+        
+        Updates the global SCORING_WEIGHTS dictionary with the provided values.
+        
+        Args:
+            high: Weight for high priority tag matches (default: 0.5).
+            medium: Weight for medium priority tag matches (default: 0.3).
+            low: Weight for low priority tag matches (default: 0.2).
+        """
+        global SCORING_WEIGHTS
+        SCORING_WEIGHTS["high_priority_match"] = high
+        SCORING_WEIGHTS["medium_priority_match"] = medium
+        SCORING_WEIGHTS["low_priority_match"] = low
+        print(f"Updated priority weights - High: {high}, Medium: {medium}, Low: {low}")

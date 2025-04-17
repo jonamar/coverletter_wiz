@@ -14,11 +14,14 @@ cover letter content blocks. It implements several rating modes:
 The rating system helps identify your strongest content for use in cover letters.
 """
 
+from __future__ import annotations
+
 import argparse
 import sys
 import os
 from pathlib import Path
 from datetime import datetime
+from typing import Optional, Dict, List, Any, Union, Tuple
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -26,12 +29,15 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from src.core.content_processor import ContentProcessor
 from src.config import DATA_DIR
 
-def setup_argparse():
-    """
-    Set up the argument parser for content rating.
+def setup_argparse() -> argparse.ArgumentParser:
+    """Sets up the argument parser for content rating.
+    
+    Configures an ArgumentParser with various operating modes and parameters
+    for the content rating system, including batch rating, tournament mode,
+    category refinement, legends tournament, statistics, and content export.
     
     Returns:
-        argparse.ArgumentParser: Configured argument parser
+        argparse.ArgumentParser: Configured argument parser ready for parsing arguments.
     """
     parser = argparse.ArgumentParser(
         description="Cover Letter Wizard - Content Rating CLI"
@@ -66,8 +72,22 @@ def setup_argparse():
     
     return parser
 
-def main():
-    """Run the content rating CLI."""
+def main() -> None:
+    """Runs the content rating CLI with command line arguments.
+    
+    This function handles the main execution flow of the content rating CLI,
+    processing command-line arguments and running the selected operation mode
+    (batch rating, tournament, category refinement, legends tournament, 
+    statistics, or content export).
+    
+    Returns:
+        None
+        
+    Raises:
+        FileNotFoundError: If the content JSON file does not exist.
+        ValueError: If there are errors in the content data structure.
+        OSError: If output directory creation fails during export.
+    """
     parser = setup_argparse()
     args = parser.parse_args()
     

@@ -12,10 +12,13 @@ It implements several rating modes:
 5. Statistics: Show detailed statistics about content blocks and categories
 """
 
+from __future__ import annotations
+
 import argparse
 import sys
 import os
 from pathlib import Path
+from typing import Optional, Dict, List, Any, Union, Tuple
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -23,8 +26,20 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from src.core.content_processor import ContentProcessor
 from src.config import DATA_DIR
 
-def setup_argparse(parser=None):
-    """Set up argument parser for the CLI."""
+def setup_argparse(parser: Optional[argparse.ArgumentParser] = None) -> argparse.ArgumentParser:
+    """Sets up argument parser for the content rating CLI.
+    
+    Configures an ArgumentParser with various operating modes and parameters
+    for the content rating system, including batch rating, tournament mode,
+    category refinement, and statistics.
+    
+    Args:
+        parser: Optional pre-existing ArgumentParser instance. If None, a new 
+            parser will be created.
+            
+    Returns:
+        argparse.ArgumentParser: Configured argument parser ready for parsing arguments.
+    """
     if parser is None:
         parser = argparse.ArgumentParser(
             description="Rate and manage cover letter content blocks."
@@ -53,8 +68,24 @@ def setup_argparse(parser=None):
     
     return parser
 
-def main(args=None):
-    """Run the content rating CLI."""
+def main(args: Optional[argparse.Namespace] = None) -> None:
+    """Runs the content rating CLI with the provided arguments.
+    
+    This function handles the main execution flow of the content rating CLI,
+    processing command-line arguments and running the selected operation mode
+    (batch rating, tournament, category refinement, legends tournament, or statistics).
+    
+    Args:
+        args: Optional pre-parsed command line arguments. If None, arguments 
+            will be parsed from sys.argv.
+            
+    Returns:
+        None
+        
+    Raises:
+        FileNotFoundError: If the content JSON file does not exist.
+        ValueError: If there are errors in the content data structure.
+    """
     if args is None:
         parser = setup_argparse()
         args = parser.parse_args()

@@ -6,10 +6,14 @@ This script provides a CLI for processing cover letter text files from the text-
 directory, extracting content blocks, and generating tags using spaCy.
 """
 
+from __future__ import annotations
+
 import argparse
 import sys
 import os
+import traceback
 from pathlib import Path
+from typing import Optional, Dict, Any, Union, List
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -17,8 +21,16 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from src.core.text_processor import TextProcessor
 from src.config import DATA_DIR
 
-def setup_argparse(parser=None):
-    """Set up argument parser for the CLI."""
+def setup_argparse(parser: Optional[argparse.ArgumentParser] = None) -> argparse.ArgumentParser:
+    """Sets up argument parser for the content processing CLI.
+    
+    Args:
+        parser: Optional pre-existing ArgumentParser instance. If None, a new 
+            parser will be created.
+            
+    Returns:
+        argparse.ArgumentParser: Configured argument parser ready for parsing arguments.
+    """
     if parser is None:
         parser = argparse.ArgumentParser(
             description="Process cover letter text files and extract content blocks."
@@ -40,8 +52,25 @@ def setup_argparse(parser=None):
     
     return parser
 
-def main(args=None):
-    """Run the content processing CLI."""
+def main(args: Optional[argparse.Namespace] = None) -> int:
+    """Runs the content processing CLI with the provided arguments.
+    
+    This function handles the main execution flow of the content processing CLI,
+    processing command-line arguments, initializing the TextProcessor, and
+    processing text files to extract content blocks with NLP analysis.
+    
+    Args:
+        args: Optional pre-parsed command line arguments. If None, arguments 
+            will be parsed from sys.argv.
+            
+    Returns:
+        int: Exit code indicating success (0), failure (1), or
+            operation cancelled (130).
+            
+    Raises:
+        FileNotFoundError: If the archive directory does not exist.
+        Exception: Various exceptions are caught internally and converted to error messages.
+    """
     if args is None:
         parser = setup_argparse()
         args = parser.parse_args()
@@ -81,7 +110,6 @@ def main(args=None):
         return 130
     except Exception as e:
         print(f"Unexpected error: {e}")
-        import traceback
         traceback.print_exc()
         return 1
 

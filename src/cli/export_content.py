@@ -6,12 +6,15 @@ This module provides a command-line interface for exporting content blocks
 with ratings above a specified threshold to a markdown file.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, List, Optional, Any, Union, Set
 
 # Add parent directory to path to allow imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -24,16 +27,25 @@ EXPORTS_DIR = os.path.join(DATA_DIR, "exports")
 DEFAULT_MIN_RATING = 8.0  # Default minimum rating threshold
 
 def export_high_rated_content(min_rating: float = DEFAULT_MIN_RATING, 
-                             output_file: str = None) -> str:
-    """
-    Export all content blocks with ratings above the specified threshold.
+                             output_file: Optional[str] = None) -> Optional[str]:
+    """Exports all content blocks with ratings above the specified threshold.
+    
+    This function reads content from the default content JSON file, filters for
+    blocks with ratings at or above the minimum threshold, deduplicates by text
+    content, and writes the results to a Markdown file.
     
     Args:
-        min_rating: Minimum rating threshold (default: 8.0)
-        output_file: Optional output file path
-        
+        min_rating: Minimum rating threshold (default: 8.0). Only content blocks
+            with ratings greater than or equal to this value will be exported.
+        output_file: Optional output file path. If None, a timestamped file will be
+            created in the exports directory.
+            
     Returns:
-        Path to the exported file
+        Path to the exported file if successful, None if an error occurred.
+        
+    Raises:
+        FileNotFoundError: If the content file does not exist.
+        json.JSONDecodeError: If the content file contains invalid JSON.
     """
     try:
         # Load content data
@@ -47,7 +59,7 @@ def export_high_rated_content(min_rating: float = DEFAULT_MIN_RATING,
         report.append("")
         
         # Extract high-rated content blocks
-        high_rated_blocks = []
+        high_rated_blocks: List[Dict[str, Any]] = []
         
         for file_key, file_data in content_data.items():
             if not isinstance(file_data, dict) or "content" not in file_data:
@@ -70,7 +82,7 @@ def export_high_rated_content(min_rating: float = DEFAULT_MIN_RATING,
                         })
         
         # Group blocks by text to eliminate duplicates
-        unique_blocks = {}
+        unique_blocks: Dict[str, Dict[str, Union[str, float, List[str], List[Any]]]] = {}
         for block in high_rated_blocks:
             text = block["text"]
             if text in unique_blocks:
@@ -140,8 +152,16 @@ def export_high_rated_content(min_rating: float = DEFAULT_MIN_RATING,
         traceback.print_exc()
         return None
 
-def setup_argparse(parser=None):
-    """Set up argument parser for the CLI."""
+def setup_argparse(parser: Optional[argparse.ArgumentParser] = None) -> argparse.ArgumentParser:
+    """Sets up argument parser for the export content CLI.
+    
+    Args:
+        parser: Optional pre-existing ArgumentParser instance. If None, a new 
+            parser will be created.
+            
+    Returns:
+        argparse.ArgumentParser: Configured argument parser ready for parsing arguments.
+    """
     if parser is None:
         parser = argparse.ArgumentParser(description="Export high-rated content blocks")
     
@@ -151,8 +171,20 @@ def setup_argparse(parser=None):
     
     return parser
 
-def main(args=None):
-    """Main function to run the export tool."""
+def main(args: Optional[argparse.Namespace] = None) -> None:
+    """Runs the export content CLI with the provided arguments.
+    
+    This function handles the main execution flow of the export content CLI,
+    processing command-line arguments and exporting high-rated content blocks
+    based on the specified criteria.
+    
+    Args:
+        args: Optional pre-parsed command line arguments. If None, arguments 
+            will be parsed from sys.argv.
+            
+    Returns:
+        None
+    """
     if args is None:
         parser = setup_argparse()
         args = parser.parse_args()

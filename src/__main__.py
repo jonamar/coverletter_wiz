@@ -9,6 +9,7 @@ import argparse
 import sys
 import os
 from pathlib import Path
+from typing import Any, Optional, NoReturn, Sequence, Union, List
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
@@ -18,8 +19,15 @@ from src.cli.rate_content import main as rate_content_main
 from src.cli.analyze_job import main as analyze_job_main
 from src.cli.match_content import main as match_content_main
 
-def setup_argparse():
-    """Set up the main argument parser for the application."""
+def setup_argparse() -> argparse.ArgumentParser:
+    """Set up the main argument parser for the application.
+    
+    Creates and configures the argument parser with all subcommands
+    and their respective arguments for the Cover Letter Wizard CLI.
+    
+    Returns:
+        Configured ArgumentParser object with all subparsers and arguments.
+    """
     parser = argparse.ArgumentParser(
         description="Cover Letter Wizard - A comprehensive system for managing cover letters and job applications."
     )
@@ -53,8 +61,12 @@ def setup_argparse():
     
     return parser
 
-def main():
-    """Run the main entry point for the application."""
+def main() -> None:
+    """Run the main entry point for the application.
+    
+    Parses command-line arguments and routes the execution to the appropriate
+    subcommand handler based on the user's input.
+    """
     parser = setup_argparse()
     args = parser.parse_args()
     

@@ -6,11 +6,15 @@ This script provides a CLI for matching cover letter content blocks to job requi
 and generating reports and cover letter drafts.
 """
 
+from __future__ import annotations
+
 import argparse
 import sys
 import os
+import traceback
 from pathlib import Path
 from datetime import datetime
+from typing import Optional, Dict, List, Any, Union, Tuple
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -18,8 +22,16 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from src.core.content_matcher import ContentMatcher
 from src.config import DEFAULT_LLM_MODEL, DATA_DIR
 
-def setup_argparse(parser=None):
-    """Set up argument parser for the CLI."""
+def setup_argparse(parser: Optional[argparse.ArgumentParser] = None) -> argparse.ArgumentParser:
+    """Sets up argument parser for the content matching CLI.
+    
+    Args:
+        parser: Optional pre-existing ArgumentParser instance. If None, a new 
+            parser will be created.
+            
+    Returns:
+        argparse.ArgumentParser: Configured argument parser ready for parsing arguments.
+    """
     if parser is None:
         parser = argparse.ArgumentParser(description="Match cover letter content to job requirements and generate reports.")
     
@@ -58,12 +70,22 @@ def setup_argparse(parser=None):
     
     return parser
 
-def match_content(args):
-    """
-    Match content blocks to a specific job posting.
+def match_content(args: argparse.Namespace) -> int:
+    """Matches content blocks to a specific job posting.
+    
+    This function implements the core content matching functionality by validating inputs,
+    initializing the ContentMatcher, and performing requested operations like listing jobs,
+    generating reports, or creating cover letters based on the provided arguments.
     
     Args:
-        args: Command line arguments
+        args: Command line arguments containing job selection, operation modes,
+            scoring weights, and LLM model configuration.
+            
+    Returns:
+        int: Exit code indicating success (0) or failure (non-zero).
+        
+    Raises:
+        Exception: Various exceptions are caught internally and converted to error messages.
     """
     try:
         # Validate required arguments
@@ -98,7 +120,6 @@ def match_content(args):
             return 1
         except Exception as e:
             print(f"Unexpected error initializing ContentMatcher: {e}")
-            import traceback
             traceback.print_exc()
             return 1
         
@@ -248,14 +269,26 @@ def match_content(args):
         return 130
     except Exception as e:
         print(f"Unexpected error: {e}")
-        import traceback
         traceback.print_exc()
         return 1
 
-def main(args=None):
-    """Run the content matcher CLI."""
-    parser = setup_argparse()
-    args = parser.parse_args()
+def main(args: Optional[argparse.Namespace] = None) -> None:
+    """Runs the content matcher CLI with the provided arguments.
+    
+    This function handles the main execution flow of the content matcher CLI,
+    processing command-line arguments and performing the appropriate operations
+    based on the specified modes and configurations.
+    
+    Args:
+        args: Optional pre-parsed command line arguments. If None, arguments 
+            will be parsed from sys.argv.
+            
+    Returns:
+        None
+    """
+    if args is None:
+        parser = setup_argparse()
+        args = parser.parse_args()
     
     # Update scoring weights based on arguments
     if args.high_weight != 0.5 or args.medium_weight != 0.3 or args.low_weight != 0.2 or args.multi_tag_bonus != 0.1:
@@ -293,7 +326,8 @@ def main(args=None):
         return
     
     if args.job_id is not None:
-        return match_content(args)
+        match_content(args)
+        return
     else:
         # If no operation mode specified, show help
         parser.print_help()

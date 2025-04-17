@@ -6,6 +6,8 @@ This module handles scraping and analyzing job postings using spaCy for NLP
 processing and local LLM for information extraction.
 """
 
+from __future__ import annotations
+
 import os
 import re
 import json
@@ -14,10 +16,11 @@ import spacy
 import yaml
 import ollama
 import requests
+import traceback
 from bs4 import BeautifulSoup
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Any, Union, Set
 import sys
 
 from src.config import DEFAULT_LLM_MODEL, DATA_DIR
@@ -26,34 +29,37 @@ from src.config import DEFAULT_LLM_MODEL, DATA_DIR
 DEFAULT_OUTPUT_FILE = os.path.join(DATA_DIR, "json/analyzed_jobs.json")
 
 class JobAnalyzer:
-    """
-    Core class for analyzing job postings.
+    """Core class for analyzing job postings.
     
     This class handles fetching, extracting, and analyzing job postings using
     spaCy for tag analysis and a local LLM for basic information extraction.
     """
     
-    def __init__(self, output_file: str = DEFAULT_OUTPUT_FILE, llm_model: str = DEFAULT_LLM_MODEL):
-        """
-        Initialize the JobAnalyzer.
+    def __init__(self, output_file: str = DEFAULT_OUTPUT_FILE, llm_model: str = DEFAULT_LLM_MODEL) -> None:
+        """Initialize the JobAnalyzer.
         
         Args:
-            output_file (str): Path to the output file for storing analyzed jobs
-            llm_model (str): Default LLM model to use for analysis
+            output_file: Path to the output file for storing analyzed jobs.
+            llm_model: Default LLM model to use for analysis.
         """
         self.output_file = output_file
         self.llm_model = llm_model
         self.categories = self._load_categories()
         
-    def _load_categories(self, yaml_file: str = "config/categories.yaml") -> Dict:
-        """
-        Load categories from a YAML file.
+    def _load_categories(self, yaml_file: str = "config/categories.yaml") -> Dict[str, Any]:
+        """Load categories from a YAML file.
+        
+        Attempts to find the YAML file in multiple potential locations.
         
         Args:
-            yaml_file (str): Path to the YAML file containing categories
+            yaml_file: Path to the YAML file containing categories.
             
         Returns:
-            Dict: Categories data
+            Categories data dictionary with category hierarchies.
+            
+        Raises:
+            FileNotFoundError: If the categories file cannot be found.
+            yaml.YAMLError: If the YAML file is malformed.
         """
         try:
             # Try different potential paths
@@ -78,14 +84,19 @@ class JobAnalyzer:
             return {}
     
     def fetch_job_posting(self, url: str) -> Tuple[Optional[str], Optional[str]]:
-        """
-        Fetch job posting content from a URL.
+        """Fetch job posting content from a URL.
+        
+        Downloads the HTML content from the specified URL and extracts
+        the main job description text.
         
         Args:
-            url (str): URL of the job posting
+            url: URL of the job posting.
             
         Returns:
-            Tuple[Optional[str], Optional[str]]: (cleaned_text, html_content)
+            A tuple containing (cleaned_text, html_content) or (None, None) if fetching fails.
+            
+        Raises:
+            requests.RequestException: If there's an error fetching the URL.
         """
         try:
             headers = {
@@ -101,14 +112,16 @@ class JobAnalyzer:
             return None, None
     
     def _extract_main_content(self, html_content: str) -> str:
-        """
-        Extract the main content from an HTML page, focusing on job description.
+        """Extract the main content from an HTML page, focusing on job description.
+        
+        Uses BeautifulSoup to parse the HTML and extract the most relevant
+        job description text, filtering out navigation, scripts, and headers.
         
         Args:
-            html_content (str): HTML content
+            html_content: HTML content of the job posting page.
             
         Returns:
-            str: Cleaned text content
+            Cleaned text content with the job description.
         """
         soup = BeautifulSoup(html_content, "html.parser")
         
@@ -154,16 +167,24 @@ class JobAnalyzer:
         # Fallback: just get all text
         return soup.get_text(separator="\n\n", strip=True)
     
-    def analyze_job_posting(self, url: str, job_text: str) -> Optional[Dict]:
-        """
-        Analyze a job posting using spaCy for tag analysis and Ollama for basic info extraction.
+    def analyze_job_posting(self, url: str, job_text: str) -> Optional[Dict[str, Any]]:
+        """Analyze a job posting using spaCy for tag analysis and Ollama for basic info extraction.
+        
+        This method performs comprehensive job posting analysis:
+        1. Extracts basic information (organization, title, summary) using LLM
+        2. Identifies skills, technologies, and requirements in the posting
+        3. Categorizes requirements into priority levels
         
         Args:
-            url (str): URL of the job posting
-            job_text (str): Extracted job posting text
+            url: URL of the job posting.
+            job_text: Extracted job posting text.
             
         Returns:
-            Optional[Dict]: Analyzed job data
+            Analyzed job data dictionary or None if analysis fails.
+            
+        Raises:
+            RuntimeError: If there are issues with the LLM connection.
+            ValueError: If job text is empty or too short for meaningful analysis.
         """
         if not job_text:
             print("Error: No job text provided for analysis.")
@@ -272,18 +293,20 @@ SUMMARY: [One sentence summary]
             traceback.print_exc()
             return None
     
-    def _analyze_tags(self, job_text: str) -> Dict:
-        """
-        Analyze the job text and generate prioritized tags using spaCy.
+    def _analyze_tags(self, job_text: str) -> Dict[str, List[str]]:
+        """Analyze the job text and generate prioritized tags using spaCy.
         
         Uses NLP processing to extract tags from job text and categorize them
         into high, medium, and low priority based on frequency and importance.
         
         Args:
-            job_text (str): Job posting text
+            job_text: Job posting text.
             
         Returns:
-            Dict: Prioritized tags in high, medium, and low priority categories
+            Prioritized tags in high, medium, and low priority categories.
+            
+        Raises:
+            ImportError: If the spaCy utilities cannot be imported.
         """
         try:
             # Import here to avoid circular imports
@@ -303,15 +326,17 @@ SUMMARY: [One sentence summary]
                 # Fallback to basic analysis if spaCy utilities are unavailable
                 return self._basic_tag_analysis(job_text)
     
-    def _basic_tag_analysis(self, job_text: str) -> Dict:
-        """
-        Basic tag analysis without spaCy, used as fallback.
+    def _basic_tag_analysis(self, job_text: str) -> Dict[str, List[str]]:
+        """Basic tag analysis without spaCy, used as fallback.
+        
+        Performs simple keyword matching to identify potential skills, technologies, 
+        and soft skills when the spaCy-based analysis is unavailable.
         
         Args:
-            job_text (str): Job posting text
+            job_text: Job posting text.
             
         Returns:
-            Dict: Basic categorized tags
+            Dictionary with categorized tags in high, medium, and low priority lists.
         """
         # Convert to lowercase for case-insensitive matching
         text_lower = job_text.lower()
@@ -342,73 +367,159 @@ SUMMARY: [One sentence summary]
             "low_priority": low_priority
         }
     
-    def save_job_data(self, job_data: Dict) -> None:
-        """
-        Save analyzed job data to JSON file.
+    def save_job_data(self, job_data: Dict[str, Any]) -> bool:
+        """Save analyzed job data to JSON file.
+        
+        This method either appends the new job data to the existing data file
+        or creates a new file if one doesn't exist. It ensures the JSON structure
+        is properly maintained and handles existing job data with the same URL.
         
         Args:
-            job_data (dict): Analyzed job data
+            job_data: Analyzed job data dictionary.
+            
+        Returns:
+            True if the save was successful, False otherwise.
+            
+        Raises:
+            OSError: If there are issues with file access or creation.
+            json.JSONDecodeError: If the existing file contains invalid JSON.
         """
         try:
-            # Initialize or load existing data
-            if os.path.exists(self.output_file):
-                with open(self.output_file, "r") as file:
-                    all_jobs = json.load(file)
-            else:
-                all_jobs = {"jobs": []}
-                
-            # Check for duplicates (same URL)
-            for i, job in enumerate(all_jobs.get("jobs", [])):
-                if job.get("url") == job_data.get("url"):
-                    # Update existing job
-                    all_jobs["jobs"][i] = job_data
-                    print(f"Updated existing job: {job_data.get('job_title')}")
-                    break
-            else:
-                # Add new job
-                all_jobs["jobs"].append(job_data)
-                print(f"Added new job: {job_data.get('job_title')}")
-                
-            # Add metadata
-            all_jobs["last_updated"] = datetime.now().isoformat()
-            
-            # Save to file
+            # Create output directory if it doesn't exist
             os.makedirs(os.path.dirname(self.output_file), exist_ok=True)
-            with open(self.output_file, "w") as file:
-                json.dump(all_jobs, file, indent=2)
+            
+            # Load existing job data
+            existing_data = {}
+            if os.path.exists(self.output_file):
+                try:
+                    with open(self.output_file, "r") as f:
+                        existing_data = json.load(f)
+                except json.JSONDecodeError:
+                    print(f"Warning: {self.output_file} contains invalid JSON. Creating a new file.")
+            
+            # Use current date as key for data structure
+            today = datetime.now().strftime("%Y-%m-%d")
+            
+            # Initialize structure if needed
+            if "jobs" not in existing_data:
+                existing_data["jobs"] = []
+                
+            if "metadata" not in existing_data:
+                existing_data["metadata"] = {
+                    "last_updated": datetime.now().isoformat(),
+                    "count": 0
+                }
+            
+            # Check if we already have this job URL to avoid duplicates
+            url = job_data.get("url", "")
+            existing_job_index = None
+            
+            for i, job in enumerate(existing_data["jobs"]):
+                if job.get("url") == url:
+                    existing_job_index = i
+                    break
+                    
+            # Update or append job data
+            if existing_job_index is not None:
+                print(f"Updating existing job data for URL: {url}")
+                existing_data["jobs"][existing_job_index] = job_data
+            else:
+                print(f"Adding new job data for URL: {url}")
+                existing_data["jobs"].append(job_data)
+                
+            # Update metadata
+            existing_data["metadata"]["last_updated"] = datetime.now().isoformat()
+            existing_data["metadata"]["count"] = len(existing_data["jobs"])
+            
+            # Add sequential IDs
+            for i, job in enumerate(existing_data["jobs"], 1):
+                job["id"] = i
+            
+            # Save the data
+            with open(self.output_file, "w") as f:
+                json.dump(existing_data, f, indent=2)
                 
             print(f"Job data saved to {self.output_file}")
+            return True
             
         except Exception as e:
             print(f"Error saving job data: {e}")
-            
-    def display_job_analysis(self, job_data: Dict) -> None:
-        """
-        Display a summary of the job analysis.
+            traceback.print_exc()
+            return False
+    
+    def display_job_analysis(self, job_data: Dict[str, Any]) -> None:
+        """Display a summary of the job analysis.
+        
+        Prints a formatted summary of the job analysis, including 
+        organization, title, summary, and the prioritized tags.
         
         Args:
-            job_data (dict): Analyzed job data
+            job_data: Analyzed job data dictionary.
         """
+        if not job_data:
+            print("No job data to display.")
+            return
+            
         print("\n" + "="*80)
-        print(f"Job Analysis: {job_data.get('job_title', 'Unknown Position')}")
+        print(f"JOB ANALYSIS: {job_data.get('job_title', 'Unknown Position')}")
         print("="*80)
         print(f"Organization: {job_data.get('org_name', 'Unknown')}")
-        print(f"Summary: {job_data.get('summary', 'No summary available')}")
-        print("-"*80)
+        print(f"URL: {job_data.get('url', 'N/A')}")
+        print(f"\nSummary: {job_data.get('summary', 'No summary available')}")
+        print("\nTags:")
         
-        # Display tags by priority
+        # Display prioritized tags
         tags = job_data.get("tags", {})
         
-        print("\nHigh Priority Tags:")
+        print("\nHigh Priority:")
         for tag in tags.get("high_priority", []):
-            print(f"- {tag}")
+            print(f"  - {tag}")
             
-        print("\nMedium Priority Tags:")
+        print("\nMedium Priority:")
         for tag in tags.get("medium_priority", []):
-            print(f"- {tag}")
+            print(f"  - {tag}")
             
-        print("\nLow Priority Tags:")
+        print("\nLow Priority:")
         for tag in tags.get("low_priority", []):
-            print(f"- {tag}")
+            print(f"  - {tag}")
             
         print("\n" + "="*80)
+        
+    def analyze_url(self, url: str) -> Optional[Dict[str, Any]]:
+        """Fetch and analyze a job posting from a URL.
+        
+        Convenience method that combines fetching and analyzing a job posting
+        into a single operation. Handles all necessary error checking and reporting.
+        
+        Args:
+            url: URL of the job posting to analyze.
+            
+        Returns:
+            Analyzed job data dictionary or None if analysis fails.
+            
+        Raises:
+            ValueError: If the URL is invalid or doesn't contain job content.
+            RuntimeError: If there are issues with the LLM connection.
+        """
+        # Basic URL validation
+        if not url.startswith(("http://", "https://")):
+            print("Error: Invalid URL. URL must start with http:// or https://")
+            return None
+            
+        print(f"Fetching job posting from {url}")
+        job_text, html_content = self.fetch_job_posting(url)
+        
+        if not job_text:
+            print("Error: Could not extract text from job posting URL.")
+            return None
+        
+        print(f"Successfully extracted {len(job_text)} characters of job text.")
+        print("Analyzing job posting...")
+        
+        job_data = self.analyze_job_posting(url, job_text)
+        
+        if job_data:
+            self.save_job_data(job_data)
+            self.display_job_analysis(job_data)
+            
+        return job_data

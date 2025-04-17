@@ -6,6 +6,8 @@ This module handles processing text files from the text-archive directory,
 extracting content blocks, and generating tags using spaCy.
 """
 
+from __future__ import annotations
+
 import os
 import sys
 import json
@@ -13,6 +15,7 @@ import argparse
 from pathlib import Path
 from datetime import datetime
 import traceback
+from typing import Dict, Any, Optional, List, Union
 
 # Add parent directory to path to import modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -20,8 +23,16 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from src.core.text_processor import TextProcessor
 from src.config import DATA_DIR
 
-def setup_argparse():
-    """Set up argument parser for the process_text CLI."""
+def setup_argparse() -> argparse.ArgumentParser:
+    """Sets up and configures the argument parser for the process_text CLI.
+    
+    Creates an ArgumentParser instance with arguments for controlling text processing
+    options such as forcing reprocessing, specifying input/output paths, and
+    selecting the spaCy model to use.
+    
+    Returns:
+        argparse.ArgumentParser: Configured argument parser ready for parsing arguments.
+    """
     parser = argparse.ArgumentParser(
         description="Process cover letter text files and extract content blocks."
     )
@@ -37,8 +48,22 @@ def setup_argparse():
     
     return parser
 
-def main():
-    """Run the text processing CLI."""
+def main() -> int:
+    """Runs the text processing CLI with command line arguments.
+    
+    This function drives the text processing workflow by parsing command line arguments,
+    initializing the TextProcessor, and processing text files to extract content 
+    blocks with NLP analysis. It handles path configuration, error processing,
+    and reporting of processing results.
+    
+    Returns:
+        int: Exit code indicating success (0), failure (1), or
+            operation cancelled (130).
+            
+    Raises:
+        FileNotFoundError: If the archive directory does not exist.
+        Exception: Various exceptions are caught internally and converted to error messages.
+    """
     parser = setup_argparse()
     args = parser.parse_args()
     

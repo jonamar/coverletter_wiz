@@ -6,9 +6,11 @@ This module provides utilities for processing text using spaCy,
 including tag extraction, similarity calculation, and content analysis.
 """
 
+from __future__ import annotations
+
 import os
 import re
-from typing import List, Dict, Set, Tuple, Optional
+from typing import List, Dict, Set, Tuple, Optional, Any, Union, cast
 import spacy
 import warnings
 
@@ -31,17 +33,17 @@ except OSError:
 # Suppress the specific warning about empty vectors
 warnings.filterwarnings("ignore", message=".*W008.*")
 
-def normalize_text(text):
-    """
-    Normalize text for spaCy processing:
-    - Replace underscores with spaces
-    - Trim extra whitespace
+def normalize_text(text: str) -> str:
+    """Normalize text for spaCy processing.
+    
+    Prepares text for better semantic matching by normalizing whitespace and 
+    replacing underscores with spaces.
     
     Args:
-        text: Text to normalize
+        text: Text to normalize.
         
     Returns:
-        Normalized text
+        Normalized text string.
     """
     # Replace underscores with spaces for better semantic matching
     normalized = text.replace('_', ' ')
@@ -49,25 +51,38 @@ def normalize_text(text):
     normalized = re.sub(r'\s+', ' ', normalized).strip()
     return normalized
 
-def has_vector(doc):
-    """Check if a spaCy doc has a valid vector."""
+def has_vector(doc: spacy.tokens.Doc) -> bool:
+    """Check if a spaCy doc has a valid vector.
+    
+    Determines if a document has usable word vectors for similarity calculations.
+    
+    Args:
+        doc: A spaCy Doc object to check.
+        
+    Returns:
+        True if the document has valid vectors, False otherwise.
+    """
     if not doc or not hasattr(doc, "vector") or not doc.vector.size:
         return False
     
     # Check if vector is all zeros
     return doc.vector.any()
 
-def safe_similarity(doc1, doc2, default_score=0.0):
-    """
-    Calculate similarity between two spaCy docs safely.
+def safe_similarity(doc1: Optional[spacy.tokens.Doc], 
+                   doc2: Optional[spacy.tokens.Doc], 
+                   default_score: float = 0.0) -> float:
+    """Calculate similarity between two spaCy docs safely.
+    
+    Computes semantic similarity while handling edge cases like
+    missing vectors or invalid documents.
     
     Args:
-        doc1: First spaCy doc
-        doc2: Second spaCy doc
-        default_score: Default score to return if similarity can't be calculated
+        doc1: First spaCy doc.
+        doc2: Second spaCy doc.
+        default_score: Default score to return if similarity can't be calculated.
         
     Returns:
-        Similarity score or default value
+        Similarity score (0.0-1.0) or default value if computation fails.
     """
     if not doc1 or not doc2 or not has_vector(doc1) or not has_vector(doc2):
         return default_score
@@ -78,14 +93,16 @@ def safe_similarity(doc1, doc2, default_score=0.0):
         return default_score
 
 def extract_tags_from_text(text: str) -> List[str]:
-    """
-    Extract potential tags from text using spaCy's named entity recognition.
+    """Extract potential tags from text using spaCy's named entity recognition.
+    
+    Identifies entities, noun chunks, and key terms that could serve as
+    content tags or skill identifiers.
     
     Args:
-        text: Text to extract tags from
+        text: Text to extract tags from.
         
     Returns:
-        List of extracted tags
+        List of normalized tag strings extracted from the text.
     """
     if not nlp:
         return []
@@ -102,7 +119,7 @@ def extract_tags_from_text(text: str) -> List[str]:
     all_tags = entities + noun_chunks
     
     # Remove duplicates and normalize
-    unique_tags = set()
+    unique_tags: Set[str] = set()
     normalized_tags = []
     
     for tag in all_tags:
@@ -115,9 +132,9 @@ def extract_tags_from_text(text: str) -> List[str]:
     
     return normalized_tags
 
-def prioritize_tags_for_job(job_text: str, categories: Dict, manual_keywords: Dict = None) -> Dict[str, List[str]]:
-    """
-    Analyze job text and prioritize tags based on importance using semantic matching.
+def prioritize_tags_for_job(job_text: str, categories: Dict[str, List[str]], 
+                         manual_keywords: Optional[Dict[str, List[str]]] = None) -> Dict[str, List[str]]:
+    """Analyze job text and prioritize tags based on importance using semantic matching.
     
     This function uses spaCy to:
     1. Start with categories from the YAML file as the source of truth
@@ -125,12 +142,12 @@ def prioritize_tags_for_job(job_text: str, categories: Dict, manual_keywords: Di
     3. Incorporate manual keywords if provided
     
     Args:
-        job_text: Job posting text
-        categories: Categories from YAML file
-        manual_keywords: Optional dictionary of manual keywords by priority level
+        job_text: Job posting text.
+        categories: Categories from YAML file mapping category names to tag lists.
+        manual_keywords: Optional dictionary of manual keywords by priority level.
         
     Returns:
-        Dict with high, medium, and low priority tags
+        Dictionary with high_priority, medium_priority, and low_priority tag lists.
     """
     if not nlp:
         return {"high_priority": [], "medium_priority": [], "low_priority": []}
@@ -142,7 +159,7 @@ def prioritize_tags_for_job(job_text: str, categories: Dict, manual_keywords: Di
     job_doc = nlp(normalize_text(job_text))
     
     # Calculate semantic similarity between job text and each category
-    category_scores = {}
+    category_scores: Dict[str, float] = {}
     
     # First, score the categories themselves (not the expanded tags)
     for category in categories.keys():
@@ -155,9 +172,9 @@ def prioritize_tags_for_job(job_text: str, categories: Dict, manual_keywords: Di
         category_scores[category] = similarity * 2.0  # Give higher weight to category concepts
     
     # Now also score individual tags within each category
-    tag_scores = {}
-    tag_to_category = {}
-    tag_frequency = {}  # Track frequency of tag mentions
+    tag_scores: Dict[str, float] = {}
+    tag_to_category: Dict[str, str] = {}
+    tag_frequency: Dict[str, int] = {}  # Track frequency of tag mentions
     
     for category, tags in categories.items():
         for tag in tags:
@@ -178,7 +195,7 @@ def prioritize_tags_for_job(job_text: str, categories: Dict, manual_keywords: Di
     
     # Combine scores: if a tag has a high score and its category has a high score,
     # it's more likely to be relevant
-    combined_scores = {}
+    combined_scores: Dict[str, float] = {}
     for tag, score in tag_scores.items():
         category = tag_to_category[tag]
         category_score = category_scores.get(category, 0)
@@ -199,59 +216,52 @@ def prioritize_tags_for_job(job_text: str, categories: Dict, manual_keywords: Di
     if sorted_tags:
         scores = [score for _, score in sorted_tags]
         max_score = max(scores)
-        
-        # Use dynamic thresholds based on the score distribution
-        # This adapts to different jobs with different score patterns
-        if len(scores) >= 10:
-            # Use percentile-based thresholds if we have enough tags
-            scores_sorted = sorted(scores, reverse=True)
-            high_threshold = scores_sorted[int(len(scores_sorted) * 0.15)]  # Top 15%
-            medium_threshold = scores_sorted[int(len(scores_sorted) * 0.4)]  # Top 40%
-        else:
-            # Fall back to relative thresholds for smaller sets
-            high_threshold = max_score * 0.75
-            medium_threshold = max_score * 0.5
-        
-        # Assign tags to priority levels based on thresholds
-        high_priority = [tag for tag, score in sorted_tags if score >= high_threshold]
-        medium_priority = [tag for tag, score in sorted_tags if high_threshold > score >= medium_threshold]
-        low_priority = [tag for tag, score in sorted_tags if medium_threshold > score > 0.3]
-        
-        # More restrictive limits on number of tags
-        high_priority = high_priority[:5]
-        medium_priority = medium_priority[:8]
-        low_priority = low_priority[:10]
+        high_threshold = max(0.55, max_score * 0.75)  # At least 0.55 or 75% of max score
+        medium_threshold = max(0.35, max_score * 0.5)  # At least 0.35 or 50% of max score
     else:
-        high_priority = []
-        medium_priority = []
-        low_priority = []
+        high_threshold = 0.55
+        medium_threshold = 0.35
     
-    # Incorporate manual keywords if provided
+    # Create prioritized tag lists based on thresholds
+    high_priority_tags = []
+    medium_priority_tags = []
+    low_priority_tags = []
+    
+    # First, add any manual keywords
     if manual_keywords:
-        if "high_priority" in manual_keywords:
-            for kw in manual_keywords["high_priority"]:
-                if kw not in high_priority and kw not in medium_priority and kw not in low_priority:
-                    high_priority.append(kw)
-        
-        if "medium_priority" in manual_keywords:
-            for kw in manual_keywords["medium_priority"]:
-                if kw not in high_priority and kw not in medium_priority and kw not in low_priority:
-                    medium_priority.append(kw)
-        
-        if "low_priority" in manual_keywords:
-            for kw in manual_keywords["low_priority"]:
-                if kw not in high_priority and kw not in medium_priority and kw not in low_priority:
-                    low_priority.append(kw)
+        high_priority_tags.extend(manual_keywords.get("high_priority", []))
+        medium_priority_tags.extend(manual_keywords.get("medium_priority", []))
+        low_priority_tags.extend(manual_keywords.get("low_priority", []))
     
-    return {
-        "high_priority": high_priority,
-        "medium_priority": medium_priority,
-        "low_priority": low_priority
+    # Add tags based on scores
+    for tag, score in sorted_tags:
+        # Skip if tag is already in one of the lists from manual keywords
+        if tag in high_priority_tags or tag in medium_priority_tags or tag in low_priority_tags:
+            continue
+            
+        if score >= high_threshold:
+            high_priority_tags.append(tag)
+        elif score >= medium_threshold:
+            medium_priority_tags.append(tag)
+        else:
+            low_priority_tags.append(tag)
+    
+    # Limit list sizes (more specific limits for each priority level)
+    high_priority_tags = high_priority_tags[:12]  # Keep more high-priority tags
+    medium_priority_tags = medium_priority_tags[:15]  # Mid-level tags
+    low_priority_tags = low_priority_tags[:20]  # Keep more low-priority for breadth
+    
+    # Create final priority dictionary
+    priority_tags = {
+        "high_priority": high_priority_tags,
+        "medium_priority": medium_priority_tags,
+        "low_priority": low_priority_tags
     }
+    
+    return priority_tags
 
 def preprocess_job_text(job_text: str) -> Tuple[str, str]:
-    """
-    Preprocess job text to focus on the most relevant parts.
+    """Preprocess job text to focus on the most relevant parts.
     
     This function:
     1. Identifies and removes common boilerplate sections
@@ -259,10 +269,10 @@ def preprocess_job_text(job_text: str) -> Tuple[str, str]:
     3. Preserves the core job description, requirements, and responsibilities
     
     Args:
-        job_text: Raw job posting text
+        job_text: Raw job posting text.
         
     Returns:
-        Tuple of (processed_text, filtered_text) where:
+        A tuple containing (processed_text, filtered_text) where:
         - processed_text is the cleaned text for analysis
         - filtered_text contains the parts that were removed (for verification)
     """
@@ -391,8 +401,7 @@ def preprocess_job_text(job_text: str) -> Tuple[str, str]:
     return core_text, boilerplate_text
 
 def get_related_tags(tag: str, all_tags: List[str]) -> List[str]:
-    """
-    Find tags that are semantically related to the input tag.
+    """Find tags that are semantically related to the input tag.
     
     Args:
         tag: Tag to find relations for
@@ -425,8 +434,7 @@ def get_related_tags(tag: str, all_tags: List[str]) -> List[str]:
     return related[:5]  # Limit to top 5 related tags
 
 def parse_content_into_blocks(text: str) -> List[Dict]:
-    """
-    Parse content into blocks (sentences and paragraphs) for rating.
+    """Parse content into blocks (sentences and paragraphs) for rating.
     
     Args:
         text: Text to parse
@@ -479,8 +487,7 @@ def parse_content_into_blocks(text: str) -> List[Dict]:
     return all_blocks
 
 def analyze_content_block_similarity(blocks: List[Dict]) -> Dict[str, List[str]]:
-    """
-    Analyze similarity between content blocks to find duplicates or near-duplicates.
+    """Analyze similarity between content blocks to find duplicates or near-duplicates.
     
     Args:
         blocks: List of content blocks
@@ -531,8 +538,7 @@ def analyze_content_block_similarity(blocks: List[Dict]) -> Dict[str, List[str]]
     return similarity_map
 
 def identify_sentence_groups(paragraph: str, nlp=None) -> List[Dict]:
-    """
-    Identify sentence groups within a paragraph.
+    """Identify sentence groups within a paragraph.
     
     This function uses spaCy to split a paragraph into sentences and then
     identifies which sentences should be grouped together based on semantic
@@ -627,8 +633,7 @@ def identify_sentence_groups(paragraph: str, nlp=None) -> List[Dict]:
     return groups
 
 def assign_tags_with_spacy(text: str, categories: Dict, max_tags: int = 5, nlp=None, context: str = "") -> List[Dict]:
-    """
-    Assign tags to text using spaCy-based semantic similarity and keyword matching.
+    """Assign tags to text using spaCy-based semantic similarity and keyword matching.
     
     This function uses spaCy to:
     1. Extract potential tags from the text
@@ -718,8 +723,7 @@ def assign_tags_with_spacy(text: str, categories: Dict, max_tags: int = 5, nlp=N
     return tag_scores[:max_tags]
 
 def find_similar_tags(tag: str, all_tags: List[str], max_results: int = 5) -> List[Tuple[str, float]]:
-    """
-    Find similar tags to a given tag.
+    """Find similar tags to a given tag.
     
     Args:
         tag: Tag to find similar tags for

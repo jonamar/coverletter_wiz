@@ -6,6 +6,8 @@ This module handles processing text files from the text-archive directory,
 extracting content blocks, and generating tags using spaCy.
 """
 
+from __future__ import annotations
+
 import os
 import json
 import uuid
@@ -13,27 +15,28 @@ import spacy
 import yaml
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Optional, Set, Tuple, Any
+from typing import Dict, List, Optional, Set, Tuple, Any, Union
 import traceback
 
 from src.utils.spacy_utils import identify_sentence_groups, assign_tags_with_spacy
 
 class TextProcessor:
-    """
-    Core class for processing cover letter text files.
+    """Core class for processing cover letter text files.
     
     This class handles reading text files, extracting content blocks,
     generating tags using spaCy, and preserving ratings across processing runs.
     """
     
-    def __init__(self, archive_dir: str, output_file: str, spacy_model: str = "en_core_web_md"):
-        """
-        Initialize the TextProcessor.
+    def __init__(self, archive_dir: str, output_file: str, spacy_model: str = "en_core_web_md") -> None:
+        """Initialize the TextProcessor.
         
         Args:
-            archive_dir: Directory containing text files to process
-            output_file: Output JSON file for processed content
-            spacy_model: spaCy model to use for NLP processing
+            archive_dir: Directory containing text files to process.
+            output_file: Output JSON file for processed content.
+            spacy_model: spaCy model to use for NLP processing.
+            
+        Raises:
+            OSError: If the specified spaCy model cannot be loaded.
         """
         self.archive_dir = archive_dir
         self.output_file = output_file
@@ -64,15 +67,19 @@ class TextProcessor:
                     print("Please install a spaCy model with: python -m spacy download en_core_web_lg")
                     raise
     
-    def _load_categories(self, yaml_file: str = None) -> Dict:
-        """
-        Load categories from a YAML file.
+    def _load_categories(self, yaml_file: Optional[str] = None) -> Dict[str, Any]:
+        """Load categories from a YAML file.
+        
+        Attempts to locate a categories YAML file in multiple potential locations.
         
         Args:
-            yaml_file: Path to the YAML file containing categories
+            yaml_file: Path to the YAML file containing categories.
             
         Returns:
-            Dict: Categories data structure
+            Categories data structure dictionary.
+            
+        Raises:
+            yaml.YAMLError: If the YAML file is malformed.
         """
         from src.config import DATA_DIR
         
@@ -103,12 +110,16 @@ class TextProcessor:
         print("Warning: Could not load categories. Using empty categories.")
         return {"categories": []}
     
-    def _load_existing_data(self) -> Dict:
-        """
-        Load existing processed data if available.
+    def _load_existing_data(self) -> Dict[str, Any]:
+        """Load existing processed data if available.
+        
+        Attempts to load previously processed data to preserve ratings and metadata.
         
         Returns:
-            Dict: Existing processed data or empty structure
+            Existing processed data or empty structure if not found.
+            
+        Raises:
+            json.JSONDecodeError: If the existing file contains invalid JSON.
         """
         try:
             # First check the output file path
@@ -148,15 +159,20 @@ class TextProcessor:
             }
         }
     
-    def process_text_files(self, force_reprocess: bool = False) -> Optional[Dict]:
-        """
-        Process all text files in the archive directory.
+    def process_text_files(self, force_reprocess: bool = False) -> Optional[Dict[str, Any]]:
+        """Process all text files in the archive directory.
+        
+        Reads each text file, extracts content blocks, generates tags,
+        and preserves existing ratings.
         
         Args:
-            force_reprocess: Force reprocessing of all files even if unchanged
+            force_reprocess: Force reprocessing of all files even if unchanged.
             
         Returns:
-            Optional[Dict]: Processing statistics or None if error
+            Processing statistics or None if error occurs.
+            
+        Raises:
+            OSError: If there are issues with file access or the archive directory.
         """
         try:
             # Check if archive directory exists
@@ -268,22 +284,26 @@ class TextProcessor:
             traceback.print_exc()
             return None
     
-    def _process_content(self, content: str) -> Tuple[List[Dict], List[str]]:
-        """
-        Process text content and extract structured data.
+    def _process_content(self, content: str) -> Tuple[List[Dict[str, Any]], List[str]]:
+        """Process text content and extract structured data.
+        
+        Analyzes text content using spaCy to identify paragraphs, sentences, tags, 
+        and sentence groups for further processing.
         
         Args:
-            content: Text content to process
+            content: Text content to process.
             
         Returns:
-            Tuple[List[Dict], List[str]]: Processed paragraphs and document tags
+            A tuple containing (processed_paragraphs, document_tags) where:
+              - processed_paragraphs is a list of paragraph dictionaries with sentences and tags
+              - document_tags is a list of all unique tags identified in the document
         """
         # Split into paragraphs based on double newlines
         paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
         
         # Process each paragraph
         processed_paragraphs = []
-        document_tags = set()  # Use a set to avoid duplicate tags
+        document_tags: Set[str] = set()  # Use a set to avoid duplicate tags
         
         for paragraph in paragraphs:
             # Get paragraph-level tags with confidence scores
@@ -346,74 +366,69 @@ class TextProcessor:
         
         return processed_paragraphs, list(document_tags)
     
-    def _preserve_ratings(self, existing_paragraphs: List[Dict], new_paragraphs: List[Dict]) -> List[Dict]:
-        """
-        Preserve existing ratings when updating processed content.
+    def _preserve_ratings(self, existing_paragraphs: List[Dict[str, Any]], new_paragraphs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Preserve existing ratings when updating processed content.
+        
+        Matches sentences/content blocks from previous processing runs to maintain
+        user-assigned ratings across file updates.
         
         Args:
-            existing_paragraphs: Existing processed paragraphs with ratings
-            new_paragraphs: Newly processed paragraphs
+            existing_paragraphs: Existing processed paragraphs with ratings.
+            new_paragraphs: Newly processed paragraphs.
             
         Returns:
-            List[Dict]: Updated paragraphs with preserved ratings
+            Updated paragraphs with preserved ratings from existing data.
         """
-        # Create a mapping of sentence text to its existing rating
-        sentence_ratings = {}
-        
-        # Extract all existing sentences and their ratings
+        # Create a mapping of existing sentences by text for fast lookup
+        existing_sentences = {}
         for paragraph in existing_paragraphs:
-            sentences = paragraph.get("sentences", [])
-            
-            for sentence in sentences:
-                text = sentence.get("text", "").strip()
-                
-                if not text:
-                    continue
-                    
-                # Store rating and other important fields
-                if "rating" in sentence and sentence["rating"] > 0:
-                    sentence_ratings[text] = {
-                        "rating": sentence["rating"],
-                        "last_rated": sentence.get("last_rated", ""),
-                        "batch_rating": sentence.get("batch_rating", False)
-                    }
+            for sentence in paragraph.get("sentences", []):
+                # Use the text as the key for lookup
+                existing_sentences[sentence.get("text", "")] = sentence
         
-        # Apply existing ratings to new paragraphs
+        # Now go through new paragraphs and copy ratings for matching sentences
         for paragraph in new_paragraphs:
-            sentences = paragraph.get("sentences", [])
-            
-            for sentence in sentences:
-                text = sentence.get("text", "").strip()
-                
-                if text in sentence_ratings:
-                    # Copy over the existing rating and related fields
-                    sentence["rating"] = sentence_ratings[text]["rating"]
-                    if sentence_ratings[text].get("last_rated"):
-                        sentence["last_rated"] = sentence_ratings[text]["last_rated"]
-                    if sentence_ratings[text].get("batch_rating"):
-                        sentence["batch_rating"] = sentence_ratings[text]["batch_rating"]
+            for sentence in paragraph.get("sentences", []):
+                # Look for this sentence in the existing data
+                text = sentence.get("text", "")
+                if text in existing_sentences:
+                    # Copy rating and other user-entered data
+                    existing = existing_sentences[text]
+                    sentence["rating"] = existing.get("rating", 0.0)
+                    sentence["batch_rating"] = existing.get("batch_rating", False)
+                    
+                    # Preserve any manual tag edits by comparing tag sets
+                    if "user_edited_tags" in existing:
+                        sentence["tags"] = existing.get("tags", [])
+                        sentence["user_edited_tags"] = True
         
         return new_paragraphs
     
     def _save_data(self) -> bool:
-        """
-        Save processed data to the output file.
+        """Save processed data to the output file.
+        
+        Writes the processed text content with metadata to a JSON file,
+        creating any necessary directories.
         
         Returns:
-            bool: True if save was successful, False otherwise
+            True if save was successful, False otherwise.
+            
+        Raises:
+            OSError: If there are issues with file access or creation.
+            json.JSONEncodeError: If there are issues encoding the data to JSON.
         """
         try:
-            # Create directory if it doesn't exist
+            # Create output directory if it doesn't exist
             os.makedirs(os.path.dirname(self.output_file), exist_ok=True)
             
-            # Save data to file
+            # Save to file
             with open(self.output_file, "w") as f:
                 json.dump(self.existing_data, f, indent=2)
-            
-            print(f"Saved processed data to {self.output_file}")
+                
+            print(f"Data saved to {self.output_file}")
             return True
             
         except Exception as e:
-            print(f"Error saving data to {self.output_file}: {e}")
+            print(f"Error saving data: {e}")
             traceback.print_exc()
             return False
