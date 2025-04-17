@@ -231,7 +231,7 @@ You can find the current version in `src/__init__.py` and view the complete hist
 
 ### Unified CLI
 
-The Cover Letter Wizard provides a unified command-line interface for all functionality:
+The Cover Letter Wizard provides a unified command-line interface for all functionality. This is the supported CLI interface:
 
 ```bash
 # Show help and available commands

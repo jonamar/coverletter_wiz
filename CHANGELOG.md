@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Future changes will be listed here before release
 
+## [1.0.0] - 2025-04-17
+
+### Changed
+- Removed legacy CLI script (`coverletter_wiz.py`) as all functionality has been migrated to the unified CLI
+- Updated README to clarify that the unified CLI is now the only supported interface
+- Completed the migration of all functionality to the new unified CLI structure
+
+### Breaking Changes
+- The legacy CLI script (`coverletter_wiz.py`) is no longer available
+- All commands must now be run through the unified CLI (`./coverletter`)
+
 ## [0.3.0] - 2025-04-16
 
 ### Added
@@ -156,7 +167,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moved data storage to external directory for privacy
 - Updated data paths to reference external data location
 
-[Unreleased]: https://github.com/yourusername/coverletter_wiz/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/yourusername/coverletter_wiz/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/yourusername/coverletter_wiz/compare/v0.3.0...v1.0.0
 [0.3.0]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.7...v0.3.0
 [0.2.7]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.5...v0.2.6
