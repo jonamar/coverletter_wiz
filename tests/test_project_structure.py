@@ -42,15 +42,12 @@ class TestProjectStructure(unittest.TestCase):
 
     def test_cli_help(self):
         """Test that the CLI help command works correctly."""
-        # Get the path to the main script
-        script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
-                                   "coverletter_wiz.py")
-        
-        # Run the help command
+        # Run the help command using the Python module entry point
         result = subprocess.run(
-            ["python", script_path, "--help"],
+            ["python", "-m", "src", "--help"],
             capture_output=True,
-            text=True
+            text=True,
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         )
         
         # The command might return non-zero due to warnings, but should still show usage info

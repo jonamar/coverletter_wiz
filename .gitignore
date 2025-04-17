@@ -1,4 +1,43 @@
-.venv
-.vscode
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Operating System files
 .DS_Store
-*.pyc
+Thumbs.db
+
+# Python Byte-compiled / Optimized / DLL files
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.cpython-*
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Logs and Databases
+*.log
+*.sqlite3
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Temporary files
+*.swp
+*~
+.~lock.*#
+
+# Project-specific
+.env

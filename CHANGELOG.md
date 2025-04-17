@@ -12,6 +12,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.3] - 2025-04-17
 
+### Fixed
+- Updated test suite to use new module-based CLI entry point
+- Resolved CLI help command test failure by migrating to `python -m src`
+
+### Changed
+- Enhanced documentation across all core and utility modules
+- Added comprehensive type annotations to improve code quality
+- Updated config.py with improved type safety and documentation
+
+### Improved
+- Implemented Google-style docstrings in core and utility files
+- Maintained existing functionality while improving code readability
+
 ### Changed
 - Enhanced documentation across all core and utility modules
 - Added comprehensive type annotations to improve code quality
