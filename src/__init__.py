@@ -5,4 +5,6 @@ This package provides a comprehensive set of tools for processing, analyzing, an
 cover letters based on job descriptions, with advanced content matching capabilities.
 """
 
-__version__ = "0.2.2"
+"""Coverletter Wizard package."""
+
+__version__ = "0.3.1"

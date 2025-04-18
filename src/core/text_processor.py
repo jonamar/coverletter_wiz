@@ -191,6 +191,12 @@ class TextProcessor:
                     else:
                         stats["new_files"] += 1
                     
+                    # Ensure all blocks have IDs
+                    for paragraph in processed_paragraphs:
+                        for sentence in paragraph.get("sentences", []):
+                            if "id" not in sentence:
+                                sentence["id"] = self.data_manager.generate_block_id()
+                    
                     # Get file modification time
                     mtime = os.path.getmtime(file_path)
                     mtime_str = datetime.fromtimestamp(mtime).isoformat()
@@ -224,6 +230,9 @@ class TextProcessor:
                 "files_count": stats["files_processed"],
                 "content_blocks_count": stats["total_blocks"]
             })
+            
+            # Ensure all blocks have IDs (including previously existing ones)
+            self.data_manager.ensure_block_ids()
             
             return stats
             

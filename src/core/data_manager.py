@@ -480,3 +480,75 @@ class DataManager:
             str: Path to the canonical content file.
         """
         return self.content_file
+
+    def generate_block_id(self) -> str:
+        """Generate a unique ID for a content block.
+        
+        Returns:
+            str: A unique ID in the format "B123"
+        """
+        # Get the highest existing ID
+        highest_id = 0
+        for filename, file_data in self.data.items():
+            if not isinstance(file_data, dict) or "content" not in file_data:
+                continue
+                
+            for paragraph in file_data.get("content", {}).get("paragraphs", []):
+                for sentence in paragraph.get("sentences", []):
+                    if "id" in sentence:
+                        try:
+                            # Extract the numeric part of the ID
+                            id_num = int(sentence["id"][1:])
+                            highest_id = max(highest_id, id_num)
+                        except (ValueError, TypeError):
+                            pass
+        
+        # Generate a new ID
+        return f"B{highest_id + 1}"
+    
+    def ensure_block_ids(self) -> bool:
+        """Ensure all content blocks have unique IDs.
+        
+        This method checks all content blocks and assigns unique IDs to any
+        that don't already have one.
+        
+        Returns:
+            bool: True if changes were made, False otherwise
+        """
+        changes_made = False
+        
+        for filename, file_data in self.data.items():
+            if not isinstance(file_data, dict) or "content" not in file_data:
+                continue
+                
+            for paragraph in file_data.get("content", {}).get("paragraphs", []):
+                for sentence in paragraph.get("sentences", []):
+                    if "id" not in sentence:
+                        sentence["id"] = self.generate_block_id()
+                        changes_made = True
+        
+        # Save if changes were made
+        if changes_made:
+            return self.save_data()
+            
+        return False
+        
+    def get_block_by_id(self, block_id: str) -> Optional[Dict[str, Any]]:
+        """Get a content block by its ID.
+        
+        Args:
+            block_id: The ID of the block to retrieve
+            
+        Returns:
+            Optional[Dict[str, Any]]: The content block or None if not found
+        """
+        for filename, file_data in self.data.items():
+            if not isinstance(file_data, dict) or "content" not in file_data:
+                continue
+                
+            for paragraph in file_data.get("content", {}).get("paragraphs", []):
+                for sentence in paragraph.get("sentences", []):
+                    if sentence.get("id") == block_id:
+                        return sentence
+        
+        return None

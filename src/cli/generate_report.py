@@ -3,7 +3,8 @@
 Generate Report CLI - Generate job match reports with content matching and cover letters.
 
 This module provides a command-line interface for generating comprehensive
-job match reports with tag prioritization, content matching, and cover letter generation.
+job match reports that analyze job descriptions, identify matching content
+from the user's content database, and optionally generate cover letter drafts.
 """
 
 from __future__ import annotations
@@ -11,27 +12,29 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
-import traceback
+import time
 from datetime import datetime
 from pathlib import Path
-import time
-import yaml
-from typing import Dict, List, Tuple, Set, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Tuple, Set, Union
 
-# Add parent directory to path to allow imports
+# Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from src.config import DATA_DIR, DEFAULT_LLM_MODEL
-import ollama
+from src.config import DATA_DIR, REPORTS_DIR
+from src.utils.spacy_utils import prioritize_tags_for_job, nlp, safe_similarity, has_vector, normalize_text, assign_tags_with_spacy, preprocess_job_text, analyze_content_block_similarity
+from src.utils.diff_utils import display_text_differences
+from src.utils.ollama_utils import generate_cover_letter
 
 # Constants
 DEFAULT_JOBS_FILE = os.path.join(DATA_DIR, "json/analyzed_jobs.json")
 DEFAULT_CONTENT_FILE = os.path.join(DATA_DIR, "json/cover_letter_content.json")
 CATEGORIES_FILE = os.path.join(DATA_DIR, "config/categories.yaml")
-REPORTS_DIR = os.path.join(DATA_DIR, "reports")
-MIN_RATING_THRESHOLD = 8.0  # Minimum rating to consider a content block
-DEFAULT_CONTENT_WEIGHT = 2.0  # Default weight to give to content rating
+MIN_RATING_THRESHOLD = 6.0  # Minimum rating for content blocks to be included
+DEFAULT_CONTENT_WEIGHT = 0.7  # Weight to give content rating vs tag matching
+DEFAULT_LLM_MODEL = "llama3"  # Default LLM model for cover letter generation
+DEFAULT_SIMILARITY_THRESHOLD = 0.8  # Default similarity threshold for semantic deduplication
 
 # Import locally to avoid circular imports
 from src.utils.spacy_utils import prioritize_tags_for_job, nlp, safe_similarity, has_vector, normalize_text, assign_tags_with_spacy, preprocess_job_text
@@ -117,7 +120,9 @@ def generate_report(job_id: Optional[str] = None,
                    save_keywords: bool = False,
                    min_rating: float = MIN_RATING_THRESHOLD,
                    content_weight: float = DEFAULT_CONTENT_WEIGHT,
-                   show_preprocessed_text: bool = False) -> Optional[str]:
+                   show_preprocessed_text: bool = False,
+                   use_semantic_dedup: bool = False,
+                   similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD) -> Optional[str]:
     """Generates a comprehensive job match report for a specified job.
     
     This function creates a detailed report that includes job requirements (tags),
@@ -136,6 +141,8 @@ def generate_report(job_id: Optional[str] = None,
         content_weight: Weight to give to content rating when scoring matches
             (higher value prioritizes rating more heavily).
         show_preprocessed_text: Whether to include preprocessed job text in the report.
+        use_semantic_dedup: Whether to use semantic similarity for deduplication.
+        similarity_threshold: Similarity threshold for semantic deduplication.
         
     Returns:
         Path to the generated report file if successful, None if an error occurred.
@@ -529,22 +536,93 @@ def generate_report(job_id: Optional[str] = None,
         
         # Deduplicate blocks by content while preserving tag matches
         deduplicated_blocks: Dict[str, Dict[str, Any]] = {}
-        for match in matching_blocks_list:
-            content = match["block"].get("content", "")
-            if content in deduplicated_blocks:
-                # Merge tag matches from this duplicate into the existing entry
-                for priority in ["high", "medium", "low"]:
-                    for tag in match["matched_tags"][priority]:
-                        if tag not in deduplicated_blocks[content]["matched_tags"][priority]:
-                            deduplicated_blocks[content]["matched_tags"][priority].append(tag)
+        
+        if use_semantic_dedup and len(matching_blocks_list) > 1:
+            # Extract blocks for similarity analysis
+            blocks_for_analysis = []
+            for match in matching_blocks_list:
+                block_content = match["block"].get("content", "")
+                blocks_for_analysis.append({
+                    "text": block_content,
+                    "id": match["block"].get("id", ""),
+                    "original_match": match
+                })
+            
+            # Get similarity map
+            similarity_map = analyze_content_block_similarity(blocks_for_analysis)
+            
+            # Process blocks in order of score (highest first)
+            processed_ids = set()
+            
+            for match in matching_blocks_list:
+                block_id = match["block"].get("id", "")
+                content = match["block"].get("content", "")
                 
-                # Keep the highest score
-                if match["raw_score"] > deduplicated_blocks[content]["raw_score"]:
-                    deduplicated_blocks[content]["raw_score"] = match["raw_score"]
-                    deduplicated_blocks[content]["score_percentage"] = match["score_percentage"]
-            else:
-                # Add new unique content block
-                deduplicated_blocks[content] = match
+                # Skip if this block has already been processed as a duplicate
+                if block_id and block_id in processed_ids:
+                    continue
+                
+                # Add this block to deduplicated blocks
+                if content not in deduplicated_blocks:
+                    deduplicated_blocks[content] = match.copy()
+                    deduplicated_blocks[content]["similar_blocks"] = []
+                    
+                    # Find similar blocks
+                    if content in similarity_map:
+                        similar_blocks = similarity_map[content]
+                        for similar in similar_blocks:
+                            similar_text = similar["text"]
+                            similarity = similar["similarity"]
+                            
+                            if similarity >= similarity_threshold:
+                                # Find the original match for this text
+                                similar_match = None
+                                for m in matching_blocks_list:
+                                    if m["block"].get("content", "") == similar_text:
+                                        similar_match = m
+                                        break
+                                
+                                if similar_match:
+                                    similar_id = similar_match["block"].get("id", "")
+                                    if similar_id:
+                                        processed_ids.add(similar_id)
+                                    
+                                    # Add to similar blocks
+                                    deduplicated_blocks[content]["similar_blocks"].append({
+                                        "content": similar_text,
+                                        "similarity": similarity,
+                                        "id": similar_id,
+                                        "match": similar_match
+                                    })
+                                    
+                                    # Merge tag matches
+                                    for priority in ["high", "medium", "low"]:
+                                        for tag in similar_match["matched_tags"][priority]:
+                                            if tag not in deduplicated_blocks[content]["matched_tags"][priority]:
+                                                deduplicated_blocks[content]["matched_tags"][priority].append(tag)
+                                    
+                                    # Keep the highest score
+                                    if similar_match["raw_score"] > deduplicated_blocks[content]["raw_score"]:
+                                        deduplicated_blocks[content]["raw_score"] = similar_match["raw_score"]
+                                        deduplicated_blocks[content]["score_percentage"] = similar_match["score_percentage"]
+        else:
+            # Use exact text matching for deduplication (original method)
+            for match in matching_blocks_list:
+                content = match["block"].get("content", "")
+                if content in deduplicated_blocks:
+                    # Merge tag matches from this duplicate into the existing entry
+                    for priority in ["high", "medium", "low"]:
+                        for tag in match["matched_tags"][priority]:
+                            if tag not in deduplicated_blocks[content]["matched_tags"][priority]:
+                                deduplicated_blocks[content]["matched_tags"][priority].append(tag)
+                    
+                    # Keep the highest score
+                    if match["raw_score"] > deduplicated_blocks[content]["raw_score"]:
+                        deduplicated_blocks[content]["raw_score"] = match["raw_score"]
+                        deduplicated_blocks[content]["score_percentage"] = match["score_percentage"]
+                else:
+                    # Add new unique content block
+                    deduplicated_blocks[content] = match
         
         # Convert back to list
         matching_blocks_list = list(deduplicated_blocks.values())
@@ -666,24 +744,71 @@ def generate_report(job_id: Optional[str] = None,
                     report.append(f"- {tag}")
                 report.append("")
         
-        # Add content blocks to report
-        for i, block in enumerate(matching_blocks_list, 1):
-            content = block["block"].get("content", "")
-            rating = float(block["block"].get("rating", 0))
+        # Add matching content blocks section
+        if matching_blocks_list:
+            report.append("## Matching Content Blocks")
+            report.append("")
+            report.append("These content blocks from your database match the job requirements:")
+            report.append("")
             
-            report.append(f"### {i}. Match Score: {block['score_percentage']}%, Rating: {rating}")
-            report.append("")
-            report.append(f"> {content}")
-            report.append("")
-            report.append("**Matched Tags:**")
-            
-            if block['matched_tags']['high']:
-                report.append("- *High Priority:* " + ", ".join(block['matched_tags']['high']))
-            if block['matched_tags']['medium']:
-                report.append("- *Medium Priority:* " + ", ".join(block['matched_tags']['medium']))
-            if block['matched_tags']['low']:
-                report.append("- *Low Priority:* " + ", ".join(block['matched_tags']['low']))
-            report.append("")
+            for i, match in enumerate(matching_blocks_list[:10], 1):  # Limit to top 10
+                # Calculate tag counts
+                high_count = len(match["matched_tags"]["high"])
+                medium_count = len(match["matched_tags"]["medium"])
+                low_count = len(match["matched_tags"]["low"])
+                total_tags = high_count + medium_count + low_count
+                
+                # Format matched tags by priority
+                tag_sections = []
+                if high_count > 0:
+                    tag_sections.append(f"**High Priority ({high_count}):** {', '.join(match['matched_tags']['high'])}")
+                if medium_count > 0:
+                    tag_sections.append(f"**Medium Priority ({medium_count}):** {', '.join(match['matched_tags']['medium'])}")
+                if low_count > 0:
+                    tag_sections.append(f"**Low Priority ({low_count}):** {', '.join(match['matched_tags']['low'])}")
+                
+                # Add block to report
+                report.append(f"### {i}. Match Score: {match['score_percentage']:.0f}% ({total_tags} tags)")
+                report.append("")
+                report.append(f"> {match['block'].get('content', '')}")
+                report.append("")
+                report.append(f"**Rating:** {match['block'].get('rating', 0):.1f}/10")
+                report.append("")
+                
+                # Add matched tags
+                report.append("**Matched Tags:**")
+                for section in tag_sections:
+                    report.append(section)
+                    report.append("")
+                
+                # Add similar blocks if available (when using semantic deduplication)
+                if use_semantic_dedup and "similar_blocks" in match and match["similar_blocks"]:
+                    report.append("**Similar Blocks:**")
+                    report.append("")
+                    
+                    for j, similar in enumerate(match["similar_blocks"], 1):
+                        similar_content = similar.get("content", "")
+                        similarity = similar.get("similarity", 0)
+                        similar_id = similar.get("id", "N/A")
+                        similar_match = similar.get("match", {})
+                        similar_rating = similar_match.get("block", {}).get("rating", 0)
+                        
+                        report.append(f"#### Similar Block {j} (Similarity: {similarity:.1%} | Rating: {similar_rating:.1f} | ID: {similar_id})")
+                        report.append("")
+                        report.append(f"> {similar_content}")
+                        report.append("")
+                        
+                        # Show differences
+                        diff1, diff2 = display_text_differences(match["block"].get("content", ""), similar_content)
+                        report.append("**Differences:**")
+                        report.append("```")
+                        report.append(f"Original: {diff1}")
+                        report.append(f"Similar:  {diff2}")
+                        report.append("```")
+                        report.append("")
+                
+                report.append("---")
+                report.append("")
         
         # Generate cover letter
         report.append("## Cover Letter Draft")
@@ -790,27 +915,40 @@ def setup_argparse(parser: Optional[argparse.ArgumentParser] = None) -> argparse
         argparse.ArgumentParser: Configured argument parser ready for parsing arguments.
     """
     if parser is None:
-        parser = argparse.ArgumentParser(description="Generate a job match report")
+        parser = argparse.ArgumentParser(description="Generate job match report")
     
-    # Job selection options
-    parser.add_argument("--job-id", help="ID of the job to analyze")
-    parser.add_argument("--job-url", help="URL of the job to analyze")
+    # Job identification (mutually exclusive)
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--job-id", type=str, help="ID of the job to analyze")
+    group.add_argument("--job-url", type=str, help="URL of the job to analyze")
     
-    # Report options
-    parser.add_argument("--no-cover-letter", action="store_true", help="Don't include a cover letter draft")
-    parser.add_argument("--model", help=f"LLM model to use (default: {DEFAULT_LLM_MODEL})")
-    parser.add_argument("--show-preprocessed-text", action="store_true", help="Include preprocessed job text in the report")
+    # Cover letter options
+    parser.add_argument("--no-cover-letter", action="store_true", 
+                       help="Skip cover letter generation")
+    parser.add_argument("--llm-model", type=str, default=DEFAULT_LLM_MODEL,
+                       help=f"LLM model to use for cover letter generation (default: {DEFAULT_LLM_MODEL})")
+    
+    # Content matching options
+    parser.add_argument("--min-rating", type=float, default=MIN_RATING_THRESHOLD,
+                       help=f"Minimum rating threshold for content blocks (default: {MIN_RATING_THRESHOLD})")
+    parser.add_argument("--content-weight", type=float, default=DEFAULT_CONTENT_WEIGHT,
+                       help=f"Weight to give content rating vs tag matching (default: {DEFAULT_CONTENT_WEIGHT})")
     
     # Keyword options
-    parser.add_argument("--keywords", help="Comma-separated list of keywords to prioritize")
-    parser.add_argument("--save-keywords", action="store_true", 
-                      help="Save provided keywords to categories.yaml based on semantic similarity")
+    parser.add_argument("--keywords", type=str, nargs="+",
+                       help="List of keywords to prioritize in tag matching")
+    parser.add_argument("--save-keywords", action="store_true",
+                       help="Save provided keywords to categories.yaml based on semantic similarity")
     
-    # Matching options
-    parser.add_argument("--min-rating", type=float, default=MIN_RATING_THRESHOLD, 
-                        help=f"Minimum rating threshold for content blocks (default: {MIN_RATING_THRESHOLD})")
-    parser.add_argument("--content-weight", type=float, default=DEFAULT_CONTENT_WEIGHT,
-                        help=f"Weight to give to content rating (default: {DEFAULT_CONTENT_WEIGHT})")
+    # Display options
+    parser.add_argument("--show-preprocessed", action="store_true",
+                       help="Include preprocessed job text in the report")
+    
+    # Deduplication options
+    parser.add_argument("--semantic-dedup", action="store_true",
+                       help="Use semantic similarity for content deduplication")
+    parser.add_argument("--similarity-threshold", type=float, default=DEFAULT_SIMILARITY_THRESHOLD,
+                       help=f"Similarity threshold for semantic deduplication (default: {DEFAULT_SIMILARITY_THRESHOLD})")
     
     return parser
 
@@ -832,26 +970,26 @@ def main(args: Optional[argparse.Namespace] = None) -> None:
         parser = setup_argparse()
         args = parser.parse_args()
     
-    if not args.job_id and not args.job_url:
-        # Default to the first job if no ID or URL is provided
-        args.job_id = "1"
-    
-    # Parse keywords
-    keywords = None
-    if args.keywords:
-        keywords = [k.strip() for k in args.keywords.split(",")]
-    
-    generate_report(
+    # Generate the report
+    report_file = generate_report(
         job_id=args.job_id,
         job_url=args.job_url,
         include_cover_letter=not args.no_cover_letter,
-        llm_model=args.model or DEFAULT_LLM_MODEL,
-        keywords=keywords,
+        llm_model=args.llm_model,
+        keywords=args.keywords,
         save_keywords=args.save_keywords,
         min_rating=args.min_rating,
         content_weight=args.content_weight,
-        show_preprocessed_text=args.show_preprocessed_text
+        show_preprocessed_text=args.show_preprocessed,
+        use_semantic_dedup=args.semantic_dedup,
+        similarity_threshold=args.similarity_threshold
     )
+    
+    if report_file:
+        print(f"Report generated successfully: {report_file}")
+    else:
+        print("Failed to generate report.")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

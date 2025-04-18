@@ -10,6 +10,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Future changes will be listed here before release
 
+## [0.3.1] - 2023-07-25
+
+### Added
+- Enhanced semantic deduplication in export_content.py using existing analyze_content_block_similarity function
+- Added visual highlighting of differences between similar content blocks in exports
+- Added semantic deduplication option to generate_report.py for more intelligent content comparison
+- Improved content block identification with IDs in reports and exports
+
+### Changed
+- Refactored similarity detection to use the existing analyze_content_block_similarity function
+- Removed redundant calculate_content_similarity function to maintain DRY principles
+- Enhanced tournament system to use the more robust similarity detection
+
+## [0.3.0] - 2023-07-25
+
+### Added
+- Unique content block identifiers (format: "B123") for reliable tracking
+- Similarity-based tournament pairing to prioritize comparing similar content blocks
+- Visual highlighting of differences between similar content blocks
+- Enhanced tournament interface showing block IDs and similarity percentages
+- Support for tournaments with just 2 blocks (previously required more)
+
+### Changed
+- Tournament system now prioritizes comparing semantically similar content
+- Improved content block identification using IDs instead of just text content
+- Enhanced rating persistence to work with the new ID system
+- Refactored tournament code for better maintainability
+
 ## [0.2.2] - 2025-04-18
 
 ### Improved
@@ -227,6 +255,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [Unreleased]: https://github.com/yourusername/coverletter_wiz/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/yourusername/coverletter_wiz/compare/v0.3.0...v1.0.0
+[0.3.1]: https://github.com/yourusername/coverletter_wiz/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.7...v0.3.0
 [0.2.7]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.5...v0.2.6
