@@ -70,7 +70,7 @@ def main() -> int:
     try:
         # Set default paths using external data directory
         archive_dir = args.archive_dir or os.path.join(DATA_DIR, "text-archive")
-        output_file = args.output_file or os.path.join(DATA_DIR, "json/processed_cover_letters.json")
+        output_file = args.output_file or os.path.join(DATA_DIR, "json/processed_text_files.json")
         
         # Ensure directories exist
         os.makedirs(os.path.dirname(output_file), exist_ok=True)

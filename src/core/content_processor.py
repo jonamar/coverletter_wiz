@@ -23,8 +23,10 @@ import time
 # Import config for data directory paths
 from src.config import DATA_DIR
 
+# Import DataManager for centralized data access
+from src.core.data_manager import DataManager
+
 # Constants
-JSON_FILE = os.path.join(DATA_DIR, "json/cover_letter_content.json")
 BATCH_RATING_SCALE = 10   # 1-10 scale for batch ratings
 FILTER_THRESHOLD = 2      # Ratings <= this value are filtered out
 BATCH_SIZE = 10           # Number of items to show in each batch
@@ -63,15 +65,21 @@ class ContentProcessor:
     the strongest content for use in matching to job requirements.
     """
     
-    def __init__(self, json_file: str = JSON_FILE) -> None:
-        """Initialize the ContentProcessor with the given JSON file.
+    def __init__(self, json_file=None) -> None:
+        """Initialize the ContentProcessor.
         
         Args:
             json_file: Path to the JSON file containing processed cover letters.
+                       If None, uses the default file from DataManager.
         """
-        self.json_file = json_file
-        self.data = self._load_content_data()
-        self.content_blocks = self._extract_content_blocks()
+        # Initialize data manager for centralized data access
+        self.data_manager = DataManager(content_file=json_file) if json_file else DataManager()
+        
+        # Get data from the data manager
+        self.data = self.data_manager.data
+        self.content_blocks = self.data_manager.get_content_blocks()
+        
+        # Calculate statistics
         self.total_blocks = len(self.content_blocks)
         self.rated_blocks = len([b for b in self.content_blocks if b.get("rating", 0) > 0])
         self.high_rated_blocks = len([b for b in self.content_blocks if b.get("rating", 0) >= HIGH_RATING_THRESHOLD])
@@ -83,163 +91,16 @@ class ContentProcessor:
         for block in self.content_blocks:
             if block.get("rating", 0) >= LEGENDS_MIN_RATING and block not in self.legends_blocks:
                 self.legends_blocks.append(block)
-        
-    def _load_content_data(self) -> Dict[str, Any]:
-        """Load content data from JSON file.
-        
-        The function includes robust error handling for common file issues:
-        - File not found
-        - Malformed JSON
-        - Empty content
-        - Permission issues
-        
-        Returns:
-            Content data dictionary with file metadata and content blocks.
-            
-        Raises:
-            json.JSONDecodeError: If the JSON file contains invalid JSON.
-            PermissionError: If the file cannot be read due to permission issues.
-        """
-        try:
-            # Check if file exists
-            if not os.path.exists(self.json_file):
-                print(f"Error: Content file {self.json_file} does not exist.")
-                print("Creating empty content structure.")
-                return {"metadata": {"version": "1.0", "created": datetime.now().isoformat()}}
-                
-            # Check if file is readable
-            if not os.access(self.json_file, os.R_OK):
-                print(f"Error: No read permission for {self.json_file}.")
-                return {"metadata": {"version": "1.0", "created": datetime.now().isoformat(), "error": "permission_denied"}}
-                
-            # Try to read the file
-            with open(self.json_file, "r") as f:
-                content_data = json.load(f)
-                
-            # Validate content structure
-            if not isinstance(content_data, dict):
-                print(f"Error: Content file {self.json_file} has invalid format (root not a dictionary).")
-                return {"metadata": {"version": "1.0", "created": datetime.now().isoformat(), "error": "invalid_format"}}
-                
-            # Check for empty content
-            if not content_data:
-                print(f"Warning: Content file {self.json_file} is empty.")
-                return {"metadata": {"version": "1.0", "created": datetime.now().isoformat()}}
-                
-            return content_data
-            
-        except json.JSONDecodeError as e:
-            print(f"Error: Content file {self.json_file} contains invalid JSON: {e}")
-            print(f"Line {e.lineno}, Column {e.colno}: {e.msg}")
-            return {"metadata": {"version": "1.0", "created": datetime.now().isoformat(), "error": "invalid_json"}}
-        except PermissionError:
-            print(f"Error: Permission denied when trying to read {self.json_file}")
-            return {"metadata": {"version": "1.0", "created": datetime.now().isoformat(), "error": "permission_denied"}}
-        except Exception as e:
-            print(f"Unexpected error loading content file {self.json_file}: {e}")
-            import traceback
-            traceback.print_exc()
-            return {"metadata": {"version": "1.0", "created": datetime.now().isoformat(), "error": str(e)}}
-    
-    def _extract_content_blocks(self) -> List[Dict[str, Any]]:
-        """Extract unique content blocks from the JSON data.
-        
-        Processes the loaded JSON data to extract and deduplicate content blocks
-        from all cover letters, preserving their metadata such as ratings and tags.
-        
-        Returns:
-            A list of unique content blocks with their metadata.
-        """
-        unique_blocks: Dict[str, Dict[str, Any]] = {}
-        
-        for filename, file_data in self.data.items():
-            # Skip metadata keys
-            if not isinstance(file_data, dict) or "content" not in file_data:
-                continue
-                
-            paragraphs = file_data.get("content", {}).get("paragraphs", [])
-            
-            for paragraph in paragraphs:
-                paragraph_text = paragraph.get("text", "")
-                blocks = paragraph.get("sentences", [])  # Original naming, will be renamed in future versions
-                
-                for block in blocks:
-                    text = block.get("text", "").strip()
-                    if not text:
-                        continue
-                        
-                    # Check if this is a new block or if we should update an existing one
-                    if text not in unique_blocks:
-                        # Create a new entry
-                        is_group = block.get("is_sentence_group", False)
-                        component_sentences = block.get("component_sentences", [])
-                        
-                        unique_blocks[text] = {
-                            "text": text,
-                            "sources": [filename],
-                            "rating": block.get("rating", 0),
-                            "batch_rating": block.get("batch_rating", False),
-                            "tags": block.get("tags", []),
-                            "is_content_group": is_group,  # Renamed from is_sentence_group
-                            "component_content": component_sentences,  # Renamed from component_sentences
-                            "context": paragraph_text
-                        }
-                    else:
-                        # Update existing entry
-                        if filename not in unique_blocks[text]["sources"]:
-                            unique_blocks[text]["sources"].append(filename)
-                            
-                        # Keep highest rating if multiple exist
-                        if block.get("rating", 0) > unique_blocks[text].get("rating", 0):
-                            unique_blocks[text]["rating"] = block.get("rating", 0)
-                            unique_blocks[text]["batch_rating"] = block.get("batch_rating", False)
-        
-        return list(unique_blocks.values())
     
     def _save_ratings(self) -> bool:
         """Save the current ratings back to the JSON file.
         
-        Updates the original JSON file with the modified ratings and metadata
-        from the current content blocks.
+        Updates the ratings in the JSON file based on the current content_blocks.
         
         Returns:
-            True if the save was successful, False otherwise.
-            
-        Raises:
-            PermissionError: If the file cannot be written due to permission issues.
-            OSError: If there are other file system related errors.
+            True if save was successful, False otherwise.
         """
-        try:
-            # Create directories if they don't exist
-            os.makedirs(os.path.dirname(self.json_file), exist_ok=True)
-            
-            # Check if file is writable if it exists
-            if os.path.exists(self.json_file) and not os.access(self.json_file, os.W_OK):
-                print(f"Error: No write permission for {self.json_file}.")
-                return False
-                
-            # Try to write the file
-            with open(self.json_file, "w") as f:
-                json.dump(self.data, f, indent=2)
-                
-            print(f"Ratings saved to {self.json_file}")
-            return True
-            
-        except PermissionError:
-            print(f"Error: Permission denied when trying to write to {self.json_file}")
-            print("Try running with appropriate permissions or changing the output location.")
-            return False
-        except OSError as e:
-            if "No space left on device" in str(e):
-                print(f"Error: Not enough disk space to save to {self.json_file}")
-            else:
-                print(f"Error saving to {self.json_file}: {e}")
-            return False
-        except Exception as e:
-            print(f"Unexpected error saving to {self.json_file}: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
+        return self.data_manager.update_ratings(self.content_blocks)
     
     def _get_unrated_blocks(self) -> List[Dict[str, Any]]:
         """Get all content blocks that haven't been rated yet.
@@ -1173,6 +1034,25 @@ class ContentProcessor:
         self.data["edited_blocks"][edited_id] = edited_block
         
         print(f"Added edited content block with ID: {edited_id}")
+
+    def _import_from_processed_file(self) -> None:
+        """Import new content from the processed text files.
+        
+        This method checks for content blocks in the processed text files
+        that don't exist in the current data and adds them, preserving any
+        existing ratings and metadata.
+        """
+        from src.config import DATA_DIR
+        processed_file = os.path.join(DATA_DIR, "json/processed_text_files.json")
+        if os.path.exists(processed_file):
+            self.data_manager.add_content_from_processed_file(processed_file)
+            # Refresh content blocks after import
+            self.content_blocks = self.data_manager.get_content_blocks()
+            
+            # Recalculate statistics
+            self.total_blocks = len(self.content_blocks)
+            self.rated_blocks = len([b for b in self.content_blocks if b.get("rating", 0) > 0])
+            self.high_rated_blocks = len([b for b in self.content_blocks if b.get("rating", 0) >= HIGH_RATING_THRESHOLD])
 
     def _run_category_refinement(self) -> None:
         """

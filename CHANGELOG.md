@@ -10,29 +10,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Future changes will be listed here before release
 
-## [0.1.3] - 2025-04-17
+## [0.2.0] - 2025-04-18
+
+### Added
+- Centralized data management with new `DataManager` class in `src/core/data_manager.py`
+- Comprehensive test coverage for data integration with `test_data_integration.py`
+- Singleton pattern implementation for consistent data access across components
 
 ### Fixed
-- Updated test suite to use new module-based CLI entry point
-- Resolved CLI help command test failure by migrating to `python -m src`
+- Resolved synchronization issues between text processing and rating systems
+- Fixed content rating persistence across different application components
+- Eliminated data duplication between multiple JSON files
 
 ### Changed
-- Enhanced documentation across all core and utility modules
-- Added comprehensive type annotations to improve code quality
-- Updated config.py with improved type safety and documentation
+- Consolidated to a single canonical data file (`cover_letter_content.json`)
+- Standardized file naming convention with `processed_text_files.json` for intermediate data
+- Removed legacy migration code after successful data consolidation
+- Updated all components to use the centralized DataManager
 
 ### Improved
-- Implemented Google-style docstrings in core and utility files
-- Maintained existing functionality while improving code readability
-
-### Changed
-- Enhanced documentation across all core and utility modules
-- Added comprehensive type annotations to improve code quality
-- Updated config.py with improved type safety and documentation
-
-### Improved
-- Implemented Google-style docstrings in core and utility files
-- Maintained existing functionality while improving code readability
+- Enhanced error handling and logging throughout data management
+- Added data validation for file access and processing
+- Implemented robust handling of file permissions and content types
 
 ## [1.0.0] - 2025-04-17
 
@@ -157,6 +156,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Resolved issues with empty vector warnings in spaCy similarity calculations
 - Fixed data privacy concerns by ensuring all personal data is stored in external data repository
+
+## [0.1.3] - 2025-04-17
+
+### Fixed
+- Updated test suite to use new module-based CLI entry point
+- Resolved CLI help command test failure by migrating to `python -m src`
+
+### Changed
+- Enhanced documentation across all core and utility modules
+- Added comprehensive type annotations to improve code quality
+- Updated config.py with improved type safety and documentation
+
+### Improved
+- Implemented Google-style docstrings in core and utility files
+- Maintained existing functionality while improving code readability
 
 ## [0.1.2] - 2025-04-12
 

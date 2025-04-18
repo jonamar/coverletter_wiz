@@ -19,6 +19,7 @@ from typing import Dict, List, Optional, Set, Tuple, Any, Union
 import traceback
 
 from src.utils.spacy_utils import identify_sentence_groups, assign_tags_with_spacy
+from src.core.data_manager import DataManager
 
 class TextProcessor:
     """Core class for processing cover letter text files.
@@ -45,6 +46,9 @@ class TextProcessor:
         
         # Load existing data if available
         self.existing_data = self._load_existing_data()
+        
+        # Initialize data manager for syncing with content database
+        self.data_manager = DataManager()
         
         # Initialize spaCy
         try:
@@ -122,42 +126,22 @@ class TextProcessor:
             json.JSONDecodeError: If the existing file contains invalid JSON.
         """
         try:
-            # First check the output file path
+            # Check for existing output file
             if os.path.exists(self.output_file):
                 with open(self.output_file, "r") as f:
                     data = json.load(f)
                 print(f"Loaded existing data from {self.output_file}")
                 return data
-                
-            # If not found, check for the file in the project root directory
-            root_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 
-                                    "processed_cover_letters.json")
-            if os.path.exists(root_file):
-                with open(root_file, "r") as f:
-                    data = json.load(f)
-                print(f"Loaded existing data from {root_file}")
-                return data
+            
+            # If not found, return empty data structure
+            return {}
                 
         except json.JSONDecodeError as e:
             print(f"Error: Invalid JSON in existing file: {e}")
-            print(f"Creating backup of corrupted file...")
-            backup_file = f"{self.output_file}.bak.{datetime.now().strftime('%Y%m%d%H%M%S')}"
-            try:
-                os.rename(self.output_file, backup_file)
-                print(f"Backup created: {backup_file}")
-            except Exception as e:
-                print(f"Error creating backup: {e}")
+            return {}
         except Exception as e:
             print(f"Error loading existing data: {e}")
-        
-        # Return empty structure if no existing data or error
-        return {
-            "metadata": {
-                "version": "1.0",
-                "created": datetime.now().isoformat(),
-                "updated": datetime.now().isoformat()
-            }
-        }
+            return {}
     
     def process_text_files(self, force_reprocess: bool = False) -> Optional[Dict[str, Any]]:
         """Process all text files in the archive directory.
@@ -275,7 +259,10 @@ class TextProcessor:
             }
             
             # Save updated data
-            self._save_data()
+            if self._save_data():
+                # Sync with content database
+                self.data_manager.add_content_from_processed_file(self.output_file)
+                print("Processed content has been added to the content database.")
             
             return stats
             

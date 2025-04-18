@@ -19,6 +19,7 @@ from typing import Optional, Dict, Any, Union, List
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from src.core.text_processor import TextProcessor
+from src.core.data_manager import DataManager
 from src.config import DATA_DIR
 
 def setup_argparse(parser: Optional[argparse.ArgumentParser] = None) -> argparse.ArgumentParser:
@@ -44,8 +45,11 @@ def setup_argparse(parser: Optional[argparse.ArgumentParser] = None) -> argparse
     parser.add_argument("--archive-dir", type=str, 
                        default=os.path.join(DATA_DIR, "text-archive"),
                        help="Directory containing text files to process")
+    parser.add_argument("--input-file", type=str, 
+                       default=os.path.join(DATA_DIR, "json/processed_text_files.json"),
+                       help="Input file for content processing")
     parser.add_argument("--output-file", type=str, 
-                       default=os.path.join(DATA_DIR, "json/processed_cover_letters.json"),
+                       default=os.path.join(DATA_DIR, "json/cover_letter_content.json"),
                        help="Output JSON file for processed content")
     parser.add_argument("--model", type=str, default="en_core_web_lg",
                        help="spaCy model to use for NLP processing")
@@ -78,14 +82,19 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
     try:
         # Set default paths using external data directory
         archive_dir = args.archive_dir
+        input_file = args.input_file
         output_file = args.output_file
         
         # Ensure directories exist
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
         
+        # Initialize data manager to ensure content DB is ready
+        data_manager = DataManager()
+        
         # Initialize text processor with en_core_web_lg model
         processor = TextProcessor(
             archive_dir=archive_dir,
+            input_file=input_file,
             output_file=output_file,
             spacy_model=args.model
         )
@@ -100,6 +109,12 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             print(f"Found {result['total_blocks']} content blocks")
             print(f"New files: {result['new_files']}")
             print(f"Updated files: {result['updated_files']}")
+            
+            # Verify data was synced to content DB
+            content_file = data_manager.get_canonical_file()
+            print(f"Content blocks are now available in the content database at {content_file}")
+            print("You can now use the rating commands to rate your content.")
+            
             return 0
         else:
             print("Error processing text files. See above for details.")

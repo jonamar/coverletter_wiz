@@ -27,6 +27,7 @@ from typing import Optional, Dict, List, Any, Union, Tuple
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from src.core.content_processor import ContentProcessor
+from src.core.data_manager import DataManager
 from src.config import DATA_DIR
 
 def setup_argparse() -> argparse.ArgumentParser:
@@ -65,8 +66,8 @@ def setup_argparse() -> argparse.ArgumentParser:
                        help="Minimum rating for content blocks to export (default: 8.0)")
     parser.add_argument("--category", type=str, 
                        help="Specific category to refine in refinement mode")
-    parser.add_argument("--file", type=str, default=os.path.join(DATA_DIR, "json/cover_letter_content.json"), 
-                       help="Path to content JSON file (default: in external data directory)")
+    parser.add_argument("--file", type=str, default=None, 
+                       help="Path to content JSON file (default: uses the canonical file from DataManager)")
     parser.add_argument("--output", type=str, 
                        help="Path to output file for exports (default: auto-generated)")
     
@@ -92,7 +93,13 @@ def main() -> None:
     args = parser.parse_args()
     
     # Initialize processor with specified file
-    processor = ContentProcessor(json_file=args.file)
+    if args.file is None:
+        data_manager = DataManager()
+        json_file = data_manager.get_canonical_file()
+    else:
+        json_file = args.file
+    
+    processor = ContentProcessor(json_file=json_file)
     
     # Show statistics if requested
     if args.stats:
@@ -122,7 +129,7 @@ def main() -> None:
         if not output_file:
             # Create a default filename with timestamp
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            output_file = f"data/exports/high_rated_content_{timestamp}.md"
+            output_file = os.path.join(DATA_DIR, f"exports/high_rated_content_{timestamp}.md")
             
             # Ensure exports directory exists
             os.makedirs(os.path.dirname(output_file), exist_ok=True)
