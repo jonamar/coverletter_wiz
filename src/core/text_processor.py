@@ -3,22 +3,27 @@
 Text Processor - Core module for processing cover letter text files.
 
 This module handles processing text files from the text-archive directory,
-extracting content blocks, and generating tags using spaCy.
+extracting content blocks, generating tags using spaCy, and preserving ratings
+across processing runs.
 """
 
 from __future__ import annotations
 
 import os
+import sys
 import json
-import uuid
-import spacy
 import yaml
-from pathlib import Path
-from datetime import datetime
-from typing import Dict, List, Optional, Set, Tuple, Any, Union
 import traceback
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Any, Tuple, Set, Optional
 
-from src.utils.spacy_utils import identify_sentence_groups, assign_tags_with_spacy
+import spacy
+
+# Add parent directory to path to import modules
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from src.utils.spacy_utils import assign_tags_with_spacy, identify_sentence_groups
 from src.core.data_manager import DataManager
 
 class TextProcessor:
@@ -28,26 +33,21 @@ class TextProcessor:
     generating tags using spaCy, and preserving ratings across processing runs.
     """
     
-    def __init__(self, archive_dir: str, output_file: str, spacy_model: str = "en_core_web_md") -> None:
+    def __init__(self, archive_dir: str, spacy_model: str = "en_core_web_md") -> None:
         """Initialize the TextProcessor.
         
         Args:
             archive_dir: Directory containing text files to process.
-            output_file: Output JSON file for processed content.
             spacy_model: spaCy model to use for NLP processing.
             
         Raises:
             OSError: If the specified spaCy model cannot be loaded.
         """
         self.archive_dir = archive_dir
-        self.output_file = output_file
         self.spacy_model = spacy_model
         self.categories = self._load_categories()
         
-        # Load existing data if available
-        self.existing_data = self._load_existing_data()
-        
-        # Initialize data manager for syncing with content database
+        # Initialize data manager for direct access to content database
         self.data_manager = DataManager()
         
         # Initialize spaCy
@@ -114,35 +114,6 @@ class TextProcessor:
         print("Warning: Could not load categories. Using empty categories.")
         return {"categories": []}
     
-    def _load_existing_data(self) -> Dict[str, Any]:
-        """Load existing processed data if available.
-        
-        Attempts to load previously processed data to preserve ratings and metadata.
-        
-        Returns:
-            Existing processed data or empty structure if not found.
-            
-        Raises:
-            json.JSONDecodeError: If the existing file contains invalid JSON.
-        """
-        try:
-            # Check for existing output file
-            if os.path.exists(self.output_file):
-                with open(self.output_file, "r") as f:
-                    data = json.load(f)
-                print(f"Loaded existing data from {self.output_file}")
-                return data
-            
-            # If not found, return empty data structure
-            return {}
-                
-        except json.JSONDecodeError as e:
-            print(f"Error: Invalid JSON in existing file: {e}")
-            return {}
-        except Exception as e:
-            print(f"Error loading existing data: {e}")
-            return {}
-    
     def process_text_files(self, force_reprocess: bool = False) -> Optional[Dict[str, Any]]:
         """Process all text files in the archive directory.
         
@@ -188,20 +159,16 @@ class TextProcessor:
                 file_path = os.path.join(self.archive_dir, filename)
                 
                 # Check if file needs processing
-                if not force_reprocess and filename in self.existing_data:
+                if not force_reprocess and self.data_manager.file_exists(filename):
                     # Get file modification time
                     mtime = os.path.getmtime(file_path)
                     mtime_str = datetime.fromtimestamp(mtime).isoformat()
                     
                     # Check if file has been modified since last processing
-                    if "last_modified" in self.existing_data[filename]:
-                        last_modified = self.existing_data[filename]["last_modified"]
-                        
-                        # Skip if file hasn't been modified
-                        if last_modified >= mtime_str:
-                            print(f"Skipping {filename} (unchanged)")
-                            stats["unchanged_files"] += 1
-                            continue
+                    if self.data_manager.get_last_modified(filename) >= mtime_str:
+                        print(f"Skipping {filename} (unchanged)")
+                        stats["unchanged_files"] += 1
+                        continue
                 
                 # Process the file
                 print(f"Processing {filename}...")
@@ -215,9 +182,9 @@ class TextProcessor:
                     processed_paragraphs, document_tags = self._process_content(content)
                     
                     # Preserve existing ratings
-                    if filename in self.existing_data:
+                    if self.data_manager.file_exists(filename):
                         processed_paragraphs = self._preserve_ratings(
-                            self.existing_data[filename].get("content", {}).get("paragraphs", []),
+                            self.data_manager.get_content(filename).get("paragraphs", []),
                             processed_paragraphs
                         )
                         stats["updated_files"] += 1
@@ -229,7 +196,7 @@ class TextProcessor:
                     mtime_str = datetime.fromtimestamp(mtime).isoformat()
                     
                     # Update data structure
-                    self.existing_data[filename] = {
+                    self.data_manager.add_file(filename, {
                         "filename": filename,
                         "last_modified": mtime_str,
                         "processed_date": datetime.now().isoformat(),
@@ -237,7 +204,7 @@ class TextProcessor:
                             "paragraphs": processed_paragraphs,
                             "document_tags": document_tags
                         }
-                    }
+                    })
                     
                     # Count content blocks
                     for paragraph in processed_paragraphs:
@@ -250,19 +217,13 @@ class TextProcessor:
                     traceback.print_exc()
             
             # Update metadata
-            self.existing_data["metadata"] = {
+            self.data_manager.update_metadata({
                 "version": "1.0",
-                "created": self.existing_data.get("metadata", {}).get("created", datetime.now().isoformat()),
+                "created": self.data_manager.get_metadata().get("created", datetime.now().isoformat()),
                 "updated": datetime.now().isoformat(),
                 "files_count": stats["files_processed"],
                 "content_blocks_count": stats["total_blocks"]
-            }
-            
-            # Save updated data
-            if self._save_data():
-                # Sync with content database
-                self.data_manager.add_content_from_processed_file(self.output_file)
-                print("Processed content has been added to the content database.")
+            })
             
             return stats
             
@@ -390,32 +351,3 @@ class TextProcessor:
                         sentence["user_edited_tags"] = True
         
         return new_paragraphs
-    
-    def _save_data(self) -> bool:
-        """Save processed data to the output file.
-        
-        Writes the processed text content with metadata to a JSON file,
-        creating any necessary directories.
-        
-        Returns:
-            True if save was successful, False otherwise.
-            
-        Raises:
-            OSError: If there are issues with file access or creation.
-            json.JSONEncodeError: If there are issues encoding the data to JSON.
-        """
-        try:
-            # Create output directory if it doesn't exist
-            os.makedirs(os.path.dirname(self.output_file), exist_ok=True)
-            
-            # Save to file
-            with open(self.output_file, "w") as f:
-                json.dump(self.existing_data, f, indent=2)
-                
-            print(f"Data saved to {self.output_file}")
-            return True
-            
-        except Exception as e:
-            print(f"Error saving data: {e}")
-            traceback.print_exc()
-            return False

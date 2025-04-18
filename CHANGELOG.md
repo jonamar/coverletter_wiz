@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Future changes will be listed here before release
 
+## [0.2.2] - 2025-04-18
+
+### Improved
+- Eliminated intermediate file completely with direct-to-canonical approach
+- TextProcessor now writes directly to canonical file via DataManager
+- Enhanced documentation with updated architecture diagram
+- Added test for direct-to-canonical file approach
+
 ## [0.2.1] - 2025-04-18
 
 ### Added

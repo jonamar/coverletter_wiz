@@ -40,7 +40,6 @@ class TestDataIntegration(unittest.TestCase):
         os.makedirs(self.json_dir, exist_ok=True)
         
         # Define test files
-        self.processed_file = os.path.join(self.json_dir, "processed_text_files.json")
         self.content_file = os.path.join(self.json_dir, "cover_letter_content.json")
         
         # Sample text content
@@ -92,7 +91,6 @@ Test User
         # Process the text files
         processor = TextProcessor(
             archive_dir=self.text_archive_dir,
-            output_file=self.processed_file,
             spacy_model="en_core_web_lg"
         )
         result = processor.process_text_files(force_reprocess=True)
@@ -100,9 +98,6 @@ Test User
         # Verify processing results
         self.assertIsNotNone(result, "Processing should return results")
         self.assertEqual(result['files_processed'], 1, "Should process 1 file")
-        
-        # Verify processed file exists
-        self.assertTrue(os.path.exists(self.processed_file), "Processed file should exist")
         
         # Verify content file exists (created by DataManager)
         self.assertTrue(os.path.exists(self.content_file), "Content file should exist")
@@ -248,7 +243,6 @@ Test User
         # Process the text files
         text_processor = TextProcessor(
             archive_dir=self.text_archive_dir,
-            output_file=self.processed_file,
             spacy_model="en_core_web_lg"
         )
         text_processor.process_text_files(force_reprocess=True)
@@ -272,6 +266,53 @@ Test User
                 break
         
         self.assertTrue(found_new_content, "New content should be available for rating")
+
+    def test_direct_to_canonical_approach(self):
+        """Test that TextProcessor writes directly to the canonical file.
+        
+        This test validates that the TextProcessor correctly writes data
+        directly to the canonical file managed by DataManager without 
+        requiring an intermediate file.
+        """
+        # Initialize DataManager with our test content file
+        dm = DataManager(content_file=self.content_file)
+        
+        # Create a new text file with unique content
+        unique_content = f"Unique content for direct test {datetime.now().isoformat()}"
+        direct_file = os.path.join(self.text_archive_dir, "direct_test.txt")
+        with open(direct_file, "w") as f:
+            f.write(unique_content)
+        
+        # Process the text file with TextProcessor
+        processor = TextProcessor(
+            archive_dir=self.text_archive_dir,
+            spacy_model="en_core_web_lg"
+        )
+        result = processor.process_text_files(force_reprocess=True)
+        
+        # Verify processing was successful
+        self.assertIsNotNone(result, "Processing should return results")
+        self.assertGreaterEqual(result['files_processed'], 1, "Should process at least one file")
+        
+        # Verify content file exists and contains our unique content
+        self.assertTrue(os.path.exists(self.content_file), "Content file should exist")
+        
+        # Load the content file directly
+        with open(self.content_file, "r") as f:
+            content_data = json.load(f)
+        
+        # Verify the direct_test.txt file was processed and included
+        self.assertIn("direct_test.txt", content_data, "Content should include the direct test file")
+        
+        # Verify our unique content is in the file
+        found_content = False
+        for paragraph in content_data["direct_test.txt"].get("content", {}).get("paragraphs", []):
+            for sentence in paragraph.get("sentences", []):
+                if unique_content in sentence.get("text", ""):
+                    found_content = True
+                    break
+        
+        self.assertTrue(found_content, "Unique content should be present in the canonical file")
 
 if __name__ == "__main__":
     unittest.main()

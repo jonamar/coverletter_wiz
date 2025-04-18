@@ -1036,23 +1036,21 @@ class ContentProcessor:
         print(f"Added edited content block with ID: {edited_id}")
 
     def _import_from_processed_file(self) -> None:
-        """Import new content from the processed text files.
+        """Import new content from text files.
         
-        This method checks for content blocks in the processed text files
-        that don't exist in the current data and adds them, preserving any
-        existing ratings and metadata.
+        This method is maintained for backward compatibility, but now
+        directly refreshes content blocks from the data manager since
+        the TextProcessor writes directly to the canonical file.
         """
-        from src.config import DATA_DIR
-        processed_file = os.path.join(DATA_DIR, "json/processed_text_files.json")
-        if os.path.exists(processed_file):
-            self.data_manager.add_content_from_processed_file(processed_file)
-            # Refresh content blocks after import
-            self.content_blocks = self.data_manager.get_content_blocks()
-            
-            # Recalculate statistics
-            self.total_blocks = len(self.content_blocks)
-            self.rated_blocks = len([b for b in self.content_blocks if b.get("rating", 0) > 0])
-            self.high_rated_blocks = len([b for b in self.content_blocks if b.get("rating", 0) >= HIGH_RATING_THRESHOLD])
+        # Refresh content blocks from the data manager
+        self.content_blocks = self.data_manager.get_content_blocks()
+        
+        # Recalculate statistics
+        self.total_blocks = len(self.content_blocks)
+        self.rated_blocks = len([b for b in self.content_blocks if b.get("rating", 0) > 0])
+        self.high_rated_blocks = len([b for b in self.content_blocks if b.get("rating", 0) >= HIGH_RATING_THRESHOLD])
+        
+        print("Content blocks refreshed from the canonical data source.")
 
     def _run_category_refinement(self) -> None:
         """

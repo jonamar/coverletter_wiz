@@ -76,6 +76,8 @@ flowchart LR
 
   %% Core Components
   subgraph Core[Core Components]
+      TextProcessor["Text Processor<br>Extract content from raw text"]
+      DataManager["Data Manager<br>Central data access layer"]
       ContentProcessor["Content Processor<br>Extract & rate content blocks"]
       JobAnalyzer["Job Analyzer<br>Scrape & analyze job postings"]
       ContentMatcher["Content Matcher<br>Match content to job requirements"]
@@ -96,14 +98,17 @@ flowchart LR
       MainUI["Main CLI<br>Unified interface"]
   end
 
-  %% Flows (connections remain unchanged)
-  RawText --> ContentProcessor
-  ContentProcessor <--> ContentDB
+  %% Flows
+  RawText --> TextProcessor
+  TextProcessor --> DataManager
+  DataManager <--> ContentDB
+
+  ContentProcessor <--> DataManager
 
   JobAnalyzer <--> JobDB
   JobAnalyzer -->|Web scraping| Internet
 
-  ContentProcessor <--> SpaCy
+  TextProcessor <--> SpaCy
   JobAnalyzer <--> SpaCy
   JobAnalyzer <--> LLM
 
@@ -127,10 +132,31 @@ flowchart LR
   classDef external fill:#e06666,stroke:#333,stroke-width:2px,color:#fff;
   
   class RawText,ContentDB,JobDB,Reports dataStore;
-  class ContentProcessor,JobAnalyzer,ContentMatcher core;
+  class TextProcessor,DataManager,ContentProcessor,JobAnalyzer,ContentMatcher core;
   class RateUI,JobUI,MatchUI,MainUI ui;
   class SpaCy,LLM,Internet external;
 ```
+
+## Architecture & Data Flow
+
+CoverLetter Wiz uses a modular architecture with separated processing, rating, and content matching components. The data flow follows a single-source-of-truth pattern centered around the DataManager component:
+
+1. **Text Processing**: The TextProcessor reads raw text files from your archive and extracts structured content, writing directly to the canonical content database via the DataManager.
+
+2. **Central Data Management**: All components access data through the DataManager, which provides a unified interface to the content database, ensuring consistency and preventing synchronization issues.
+
+3. **Content Rating**: The ContentProcessor provides various rating workflows (batch rating, tournaments, category refinement) to help you identify your strongest content.
+
+4. **Job Analysis**: The JobAnalyzer analyzes job postings, extracting key requirements and creating structured job profiles.
+
+5. **Content Matching**: The ContentMatcher combines your rated content blocks with job requirements to help you create targeted cover letters.
+
+The system follows these core design principles:
+
+- **Single Source of Truth**: All data is managed by the DataManager to maintain consistency
+- **Separation of Concerns**: Each component has a specific, focused responsibility
+- **Data Persistence**: All ratings and edits are preserved across processing runs
+- **Progressive Refinement**: Content is continuously improved through multiple rating workflows
 
 ## Key Features
 

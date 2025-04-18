@@ -22,12 +22,13 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from src.core.text_processor import TextProcessor
 from src.config import DATA_DIR
+from src.core.data_manager import DataManager
 
 def setup_argparse() -> argparse.ArgumentParser:
     """Sets up and configures the argument parser for the process_text CLI.
     
     Creates an ArgumentParser instance with arguments for controlling text processing
-    options such as forcing reprocessing, specifying input/output paths, and
+    options such as forcing reprocessing, specifying input paths, and
     selecting the spaCy model to use.
     
     Returns:
@@ -41,8 +42,6 @@ def setup_argparse() -> argparse.ArgumentParser:
                        help="Force reprocessing of all files even if unchanged")
     parser.add_argument("--archive-dir", type=str, 
                        help="Directory containing text files to process")
-    parser.add_argument("--output-file", type=str, 
-                       help="Output JSON file for processed content")
     parser.add_argument("--model", type=str, default="en_core_web_lg",
                        help="spaCy model to use for NLP processing")
     
@@ -68,17 +67,16 @@ def main() -> int:
     args = parser.parse_args()
     
     try:
-        # Set default paths using external data directory
+        # Set default path for archive directory
         archive_dir = args.archive_dir or os.path.join(DATA_DIR, "text-archive")
-        output_file = args.output_file or os.path.join(DATA_DIR, "json/processed_text_files.json")
         
-        # Ensure directories exist
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        # Initialize data manager to get the canonical file path
+        data_manager = DataManager()
+        canonical_file = data_manager.get_canonical_file()
         
-        # Initialize text processor
+        # Initialize text processor with direct access to the canonical file
         processor = TextProcessor(
             archive_dir=archive_dir,
-            output_file=output_file,
             spacy_model=args.model
         )
         
@@ -87,7 +85,7 @@ def main() -> int:
         result = processor.process_text_files(force_reprocess=args.force)
         
         if result:
-            print(f"Successfully processed text files. Output saved to {output_file}")
+            print(f"Successfully processed text files. Output saved to {canonical_file}")
             print(f"Processed {result['files_processed']} files")
             print(f"Found {result['total_blocks']} content blocks")
             print(f"New files: {result['new_files']}")
@@ -101,9 +99,10 @@ def main() -> int:
         print("\nOperation cancelled by user.")
         return 130
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        print(f"Error: {e}")
         traceback.print_exc()
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(main())

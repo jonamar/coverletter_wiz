@@ -369,6 +369,92 @@ class DataManager:
             return self.data[filename]
         return None
 
+    def file_exists(self, filename: str) -> bool:
+        """Check if a file exists in the data.
+        
+        Args:
+            filename: Name of the file to check.
+            
+        Returns:
+            bool: True if the file exists, False otherwise.
+        """
+        return filename in self.data and isinstance(self.data[filename], dict)
+    
+    def get_last_modified(self, filename: str) -> str:
+        """Get the last modified timestamp for a file.
+        
+        Args:
+            filename: Name of the file to get the timestamp for.
+            
+        Returns:
+            str: Last modified timestamp as ISO format string or empty string if not found.
+        """
+        if self.file_exists(filename) and "last_modified" in self.data[filename]:
+            return self.data[filename]["last_modified"]
+        return ""
+    
+    def get_content(self, filename: str) -> Dict[str, Any]:
+        """Get the content for a file.
+        
+        Args:
+            filename: Name of the file to get content for.
+            
+        Returns:
+            Dict[str, Any]: Content data structure or empty dict if not found.
+        """
+        if self.file_exists(filename) and "content" in self.data[filename]:
+            return self.data[filename]["content"]
+        return {}
+    
+    def add_file(self, filename: str, file_data: Dict[str, Any]) -> bool:
+        """Add or update a file in the data.
+        
+        Args:
+            filename: Name of the file to add/update.
+            file_data: File data structure.
+            
+        Returns:
+            bool: True if successful, False otherwise.
+        """
+        try:
+            self.data[filename] = file_data
+            return self.save_data()
+        except Exception as e:
+            print(f"Error adding file {filename}: {e}")
+            traceback.print_exc()
+            return False
+    
+    def get_metadata(self) -> Dict[str, Any]:
+        """Get metadata from the data.
+        
+        Returns:
+            Dict[str, Any]: Metadata dictionary or empty dict if not found.
+        """
+        if "metadata" in self.data and isinstance(self.data["metadata"], dict):
+            return self.data["metadata"]
+        return {}
+    
+    def update_metadata(self, metadata: Dict[str, Any]) -> bool:
+        """Update metadata in the data.
+        
+        Args:
+            metadata: Metadata dictionary.
+            
+        Returns:
+            bool: True if successful, False otherwise.
+        """
+        try:
+            # Merge with existing metadata if it exists
+            if "metadata" in self.data and isinstance(self.data["metadata"], dict):
+                self.data["metadata"].update(metadata)
+            else:
+                self.data["metadata"] = metadata
+            return self.save_data()
+        except Exception as e:
+            print(f"Error updating metadata: {e}")
+            traceback.print_exc()
+            return False
+
     def add_or_update_file(self, filename: str, file_data: Dict[str, Any]) -> bool:
         """Add or update a file in the content data.
         
