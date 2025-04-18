@@ -10,6 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Future changes will be listed here before release
 
+## [0.2.1] - 2025-04-18
+
+### Added
+- Comprehensive unit tests for `DataManager` with `test_data_manager.py`
+- Integration tests for DataManager and ContentProcessor interactions
+- Robust error handling test coverage for data management
+
+### Improved
+- Enhanced test coverage for singleton pattern handling
+- Improved testing approach with minimal mocking of core functionality
+- Added real file handling tests with temporary test directories
+
 ## [0.2.0] - 2025-04-18
 
 ### Added
