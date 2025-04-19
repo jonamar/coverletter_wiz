@@ -54,7 +54,7 @@ class TestProjectStructure(unittest.TestCase):
         help_output = result.stdout + result.stderr
         self.assertTrue("usage:" in help_output, 
                        f"CLI help should show usage information, got:\n{help_output}")
-        self.assertTrue("Cover Letter Wizard" in help_output, 
+        self.assertTrue("Coverletter Wizard" in help_output, 
                        "CLI help should include application name")
 
 

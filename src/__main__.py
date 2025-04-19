@@ -17,7 +17,9 @@ sys.path.append(str(Path(__file__).parent.parent))
 # Import CLI modules
 from src.cli.rate_content import main as rate_content_main
 from src.cli.analyze_job import main as analyze_job_main
-from src.cli.match_content import main as match_content_main
+from src.cli.process_text import main as process_text_main
+from src.cli.export_content import main as export_content_main
+from src.cli.generate_report import main as generate_report_main
 
 def setup_argparse() -> argparse.ArgumentParser:
     """Set up the main argument parser for the application.
@@ -29,35 +31,40 @@ def setup_argparse() -> argparse.ArgumentParser:
         Configured ArgumentParser object with all subparsers and arguments.
     """
     parser = argparse.ArgumentParser(
-        description="Cover Letter Wizard - A comprehensive system for managing cover letters and job applications."
+        description="Coverletter Wizard - Tools for job application content management"
     )
     
     # Create subparsers for different commands
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
     
+    # Process text command
+    process_parser = subparsers.add_parser("process", help="Process new cover letters from the text-archive directory")
+    
     # Content rating command
-    rate_parser = subparsers.add_parser("rate", help="Rate and manage cover letter content")
+    rate_parser = subparsers.add_parser("rate", help="Rate and manage cover letter content blocks")
     rate_parser.add_argument("--batch", action="store_true", help="Run batch rating mode")
     rate_parser.add_argument("--tournament", action="store_true", help="Run tournament mode")
     rate_parser.add_argument("--refinement", action="store_true", help="Run category refinement mode")
     rate_parser.add_argument("--legends", action="store_true", help="Run legends tournament")
     rate_parser.add_argument("--stats", action="store_true", help="Show content block statistics")
-    rate_parser.add_argument("--export", action="store_true", help="Export high-rated content blocks")
     
     # Job analysis command
-    job_parser = subparsers.add_parser("job", help="Analyze job postings")
-    job_parser.add_argument("--url", type=str, help="URL of the job posting to analyze")
-    job_parser.add_argument("--list", action="store_true", help="List all analyzed jobs")
-    job_parser.add_argument("--display", type=int, help="Display a job by its ID")
-    job_parser.add_argument("--model", type=str, help="LLM model to use for analysis")
+    analyze_parser = subparsers.add_parser("analyze", help="Analyze a job posting and extract requirements")
+    analyze_parser.add_argument("--url", type=str, help="URL of the job posting to analyze")
+    analyze_parser.add_argument("--list", action="store_true", help="List all analyzed jobs")
+    analyze_parser.add_argument("--display", type=int, help="Display a job by its ID")
+    analyze_parser.add_argument("--model", type=str, help="LLM model to use for analysis")
     
-    # Content matching command
-    match_parser = subparsers.add_parser("match", help="Match content to job requirements")
-    match_parser.add_argument("--job-id", type=int, help="Sequential ID of the job to analyze")
-    match_parser.add_argument("--list", action="store_true", help="List all available jobs")
-    match_parser.add_argument("--report", action="store_true", help="Generate a markdown report")
-    match_parser.add_argument("--cover-letter", action="store_true", help="Include a cover letter draft")
-    match_parser.add_argument("--model", type=str, help="LLM model to use for cover letter generation")
+    # Export content command
+    export_parser = subparsers.add_parser("export", help="Export high-rated content blocks to a markdown file")
+    
+    # Report generation command
+    report_parser = subparsers.add_parser("report", help="Generate a comprehensive job match report with content matching and cover letter")
+    report_parser.add_argument("--job-id", type=str, help="ID of the job to analyze")
+    report_parser.add_argument("--job-url", type=str, help="URL of the job to analyze (alternative to --job-id)")
+    report_parser.add_argument("--no-cover-letter", dest="include_cover_letter", action="store_false", default=True, help="Skip cover letter generation")
+    report_parser.add_argument("--llm-model", type=str, help="LLM model to use for cover letter generation")
+    report_parser.add_argument("--tags", "--keywords", type=str, nargs="+", help="Additional keywords/tags to prioritize in matching")
     
     return parser
 
@@ -76,7 +83,10 @@ def main() -> None:
         return
     
     # Route to appropriate subcommand
-    if args.command == "rate":
+    if args.command == "process":
+        process_text_main()
+    
+    elif args.command == "rate":
         # Convert args to the format expected by rate_content_main
         sys.argv = [sys.argv[0]]
         if args.batch:
@@ -89,11 +99,9 @@ def main() -> None:
             sys.argv.append("--legends")
         if args.stats:
             sys.argv.append("--stats")
-        if args.export:
-            sys.argv.append("--export")
         rate_content_main()
     
-    elif args.command == "job":
+    elif args.command == "analyze":
         # Convert args to the format expected by analyze_job_main
         sys.argv = [sys.argv[0]]
         if args.url:
@@ -106,20 +114,23 @@ def main() -> None:
             sys.argv.extend(["--model", args.model])
         analyze_job_main()
     
-    elif args.command == "match":
-        # Convert args to the format expected by match_content_main
+    elif args.command == "export":
+        export_content_main()
+    
+    elif args.command == "report":
+        # Convert args to the format expected by generate_report_main
         sys.argv = [sys.argv[0]]
-        if args.job_id is not None:
-            sys.argv.extend(["--job-id", str(args.job_id)])
-        if args.list:
-            sys.argv.append("--list")
-        if args.report:
-            sys.argv.append("--report")
-        if args.cover_letter:
-            sys.argv.append("--cover-letter")
-        if args.model:
-            sys.argv.extend(["--model", args.model])
-        match_content_main()
+        if args.job_id:
+            sys.argv.extend(["--job-id", args.job_id])
+        if args.job_url:
+            sys.argv.extend(["--job-url", args.job_url])
+        if not args.include_cover_letter:
+            sys.argv.append("--no-cover-letter")
+        if args.llm_model:
+            sys.argv.extend(["--llm-model", args.llm_model])
+        if args.tags:
+            sys.argv.extend(["--tags"] + args.tags)
+        generate_report_main()
 
 if __name__ == "__main__":
     main()

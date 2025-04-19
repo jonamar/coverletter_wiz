@@ -94,7 +94,7 @@ flowchart LR
   subgraph UI[User Interfaces]
       RateUI["Rate Content CLI<br>Batch rating & tournaments"]
       JobUI["Job Analysis CLI<br>Job posting analysis"]
-      MatchUI["Match Content CLI<br>Content matching & reports"]
+      ReportUI["Report Generation CLI<br>Content matching & reports"]
       MainUI["Main CLI<br>Unified interface"]
   end
 
@@ -119,11 +119,11 @@ flowchart LR
 
   RateUI <--> ContentProcessor
   JobUI <--> JobAnalyzer
-  MatchUI <--> ContentMatcher
+  ReportUI <--> ContentMatcher
 
   MainUI --> RateUI
   MainUI --> JobUI
-  MainUI --> MatchUI
+  MainUI --> ReportUI
   
   %% Style Definitions (High contrast)
   classDef dataStore fill:#c27ba0,stroke:#333,stroke-width:2px,color:#fff;
@@ -133,7 +133,7 @@ flowchart LR
   
   class RawText,ContentDB,JobDB,Reports dataStore;
   class TextProcessor,DataManager,ContentProcessor,JobAnalyzer,ContentMatcher core;
-  class RateUI,JobUI,MatchUI,MainUI ui;
+  class RateUI,JobUI,ReportUI,MainUI ui;
   class SpaCy,LLM,Internet external;
 ```
 
@@ -192,7 +192,7 @@ coverletter_wiz/
 │   ├── __init__.py
 │   ├── rate_content.py  # Content rating CLI
 │   ├── analyze_job.py   # Job analysis CLI
-│   └── match_content.py # Content matching CLI
+│   └── generate_report.py # Report generation and content matching CLI
 ├── utils/               # Utility modules
 │   ├── __init__.py
 │   └── spacy_utils.py   # NLP processing utilities
@@ -253,114 +253,81 @@ You can find the current version in `src/__init__.py` and view the complete hist
 
 6. Install Ollama and ensure it's running (for LLM functionality)
 
-## Usage
+## CLI Usage
 
-### Unified CLI
+The Cover Letter Wizard provides a command-line interface for all its functionality. The main commands are:
 
-The Cover Letter Wizard provides a unified command-line interface for all functionality. This is the supported CLI interface:
+### Process Text
 
-```bash
-# Show help and available commands
-./coverletter --help
-
-# Process new cover letters from text-archive
-./coverletter process
-
-# Process all files (even unchanged ones)
-./coverletter process --force
-
-# Rate content blocks in batch mode (initial rating)
-./coverletter rate --batch
-
-# Compare content blocks in tournament mode
-./coverletter rate --tournament
-
-# Run legends tournament for top-rated content (10.0+)
-./coverletter rate --legends
-
-# Show content block statistics
-./coverletter rate --stats
-
-# Analyze a job posting
-./coverletter analyze --url "https://example.com/job-posting"
-
-# List analyzed jobs
-./coverletter analyze --list
-
-# Match content to a specific job
-./coverletter match --job-id 1
-
-# Generate a comprehensive report with cover letter
-./coverletter report --job-id 1 --keywords "python,machine learning"
-
-# Export high-rated content blocks
-./coverletter export --min-rating 8.5
-```
-
-Each subcommand has its own set of options that you can view with:
+Process raw text files into content blocks:
 
 ```bash
-./coverletter <subcommand> --help
+python -m coverletter_wiz process --file path/to/text_file.txt
 ```
 
-## Content Rating System
+Options:
+- `--file`: Path to the text file to process
+- `--directory`: Process all text files in a directory
+- `--min-length`: Minimum length for content blocks (default: 100)
+- `--max-length`: Maximum length for content blocks (default: 500)
 
-The Cover Letter Wizard uses a sophisticated rating system to evaluate and improve your cover letter content:
+### Rate Content
 
-### Batch Rating
+Rate content blocks to identify your best material:
 
-Initial rating of content blocks on a 1-10 scale:
-- 1-2: Poor (filtered out)
-- 3-5: Fair to Average
-- 6-7: Good
-- 8-10: Excellent
+```bash
+python -m coverletter_wiz rate --batch
+```
 
-### Tournament Mode
+Options:
+- `--batch`: Rate content blocks in batch mode
+- `--tournament`: Rate content blocks in tournament mode
+- `--category`: Focus on a specific category
+- `--min-rating`: Only show content above this rating (default: 0)
 
-Compare content blocks within categories to refine ratings:
-- Content blocks compete against each other in head-to-head comparisons
-- Winners gain rating points, losers lose points
-- Categories track completion and refinement status
-- Helps identify your best content in each category
+### Analyze Job
 
-### Legends Tournament
+Analyze job postings to extract requirements:
 
-Special tournament mode for your absolute best content:
-- Only content blocks rated 10.0 or higher qualify as "legends"
-- Extended rating scale (up to 12.0) for finer differentiation
-- Cross-category competition to identify your very best material
-- Prevents rating inflation by requiring tougher competition
+```bash
+python -m coverletter_wiz analyze --url "https://example.com/job-posting"
+```
 
-### Category Refinement
+Options:
+- `--url`: URL of the job posting to analyze
+- `--file`: Path to a local file containing job description
+- `--save`: Save the analyzed job to the database
 
-Organize and improve content by topic:
-- View completion status for each category
-- Focus on categories that need more work
-- Track refinement progress across your entire content library
-- Seamlessly switch between refinement and tournament modes
+### Generate Report
 
-### Export Functionality
+Generate reports and cover letters for job applications:
 
-Export your best content for easy use in cover letters:
-- Export content blocks above a specified rating threshold
-- Organized by category for easy reference
-- Includes detailed statistics and metadata
-- Markdown format for easy integration into documents
+```bash
+python -m coverletter_wiz report --job-id 123
+```
 
-## Data Flow
+Options:
+- `--job-id`: ID of the job to analyze
+- `--job-url`: URL of the job to analyze (alternative to --job-id)
+- `--no-cover-letter`: Skip cover letter generation
+- `--llm-model`: LLM model to use (default: gemma3:12b)
+- `--tags`: Additional keywords/tags to prioritize in matching
+- `--min-rating`: Minimum rating threshold for content (default: 7.0)
+- `--weights`: Comma-separated weights for high,medium,low priorities and multi-tag bonus (default: 3,2,1,0.1)
+- `--list`: List all available jobs with their IDs
 
-1. **Content Processing**: Raw cover letter texts are processed into content blocks, which are stored in `cover_letter_content.json`
-2. **Content Rating**: Content blocks are rated through batch rating, tournaments, and refinement processes
-3. **Job Analysis**: Job postings are scraped and analyzed, with results stored in `analyzed_jobs.json`
-4. **Content Matching**: High-rated content blocks are matched to job requirements
-5. **Report Generation**: Reports are generated in the `reports` directory, including matching content and cover letter drafts
+### Export Content
 
-## External Dependencies
+Export your best content for use in cover letters:
 
-- **spaCy**: Used for natural language processing, tag extraction, and content analysis
-- **Ollama**: Used for running local LLMs for job analysis and cover letter generation
-- **BeautifulSoup**: Used for web scraping job postings
-- **PyYAML**: Used for configuration file parsing
+```bash
+python -m coverletter_wiz export --min-rating 8.0
+```
+
+Options:
+- `--min-rating`: Minimum rating threshold for export (default: 7.0)
+- `--format`: Export format (markdown or json, default: markdown)
+- `--output`: Output file path
 
 ## Development
 

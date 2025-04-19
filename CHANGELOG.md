@@ -10,6 +10,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Future changes will be listed here before release
 
+## [0.5.0] - 2025-04-19
+
+### Added
+- Added customizable scoring weights via the `--weights` parameter
+- Implemented multi-tag bonus for content blocks that match multiple tags
+- Added `--list` argument to report command for listing available jobs
+
+### Changed
+- Improved scoring algorithm to use configurable weights for tag priorities
+- Enhanced content block matching with more sophisticated scoring
+
+### Removed
+- Completely removed redundant `match_content.py` module after consolidating all functionality into `generate_report.py`
+
+## [0.4.2] - 2025-04-19
+
+### Changed
+- Removed redundant `match` command in favor of the more comprehensive `report` command
+- Simplified CLI interface by consolidating duplicate functionality
+- Updated main entry point to use consistent command naming
+
 ## [0.4.1] - 2025-04-19
 
 ### Added
@@ -285,8 +306,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moved data storage to external directory for privacy
 - Updated data paths to reference external data location
 
-[Unreleased]: https://github.com/jonamar/coverletter_wiz/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/jonamar/coverletter_wiz/compare/v0.3.0...v1.0.0
+[Unreleased]: https://github.com/jonamar/coverletter_wiz/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/jonamar/coverletter_wiz/compare/v0.4.2...v0.5.0
+[0.4.2]: https://github.com/jonamar/coverletter_wiz/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/jonamar/coverletter_wiz/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/jonamar/coverletter_wiz/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/jonamar/coverletter_wiz/compare/v0.3.1...v0.3.2
