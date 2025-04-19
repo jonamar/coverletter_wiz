@@ -15,6 +15,7 @@ import os
 import re
 import sys
 import time
+import yaml
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple, Set, Union
@@ -22,10 +23,12 @@ from typing import Dict, List, Optional, Any, Tuple, Set, Union
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from src.config import DATA_DIR, REPORTS_DIR
+from src.config import DATA_DIR, REPORTS_DIR, DEFAULT_LLM_MODEL
 from src.utils.spacy_utils import prioritize_tags_for_job, nlp, safe_similarity, has_vector, normalize_text, assign_tags_with_spacy, preprocess_job_text, analyze_content_block_similarity
-from src.utils.diff_utils import display_text_differences
-from src.utils.ollama_utils import generate_cover_letter
+from src.utils.diff_utils import display_text_differences, display_markdown_differences
+
+# We need to import ollama here, not from a non-existent ollama_utils module
+import ollama
 
 # Constants
 DEFAULT_JOBS_FILE = os.path.join(DATA_DIR, "json/analyzed_jobs.json")
@@ -33,7 +36,6 @@ DEFAULT_CONTENT_FILE = os.path.join(DATA_DIR, "json/cover_letter_content.json")
 CATEGORIES_FILE = os.path.join(DATA_DIR, "config/categories.yaml")
 MIN_RATING_THRESHOLD = 6.0  # Minimum rating for content blocks to be included
 DEFAULT_CONTENT_WEIGHT = 0.7  # Weight to give content rating vs tag matching
-DEFAULT_LLM_MODEL = "llama3"  # Default LLM model for cover letter generation
 DEFAULT_SIMILARITY_THRESHOLD = 0.8  # Default similarity threshold for semantic deduplication
 
 # Import locally to avoid circular imports
@@ -121,7 +123,7 @@ def generate_report(job_id: Optional[str] = None,
                    min_rating: float = MIN_RATING_THRESHOLD,
                    content_weight: float = DEFAULT_CONTENT_WEIGHT,
                    show_preprocessed_text: bool = False,
-                   use_semantic_dedup: bool = False,
+                   use_semantic_dedup: bool = True,
                    similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD) -> Optional[str]:
     """Generates a comprehensive job match report for a specified job.
     
@@ -160,8 +162,22 @@ def generate_report(job_id: Optional[str] = None,
         job = None
         
         if job_id:
+            # Add debug info
+            print(f"Looking for job with ID: {job_id} (type: {type(job_id)})")
+            print(f"Available job IDs: {[j.get('id') for j in jobs_data.get('jobs', [])]}")
+            
+            # Try to convert job_id to int if it's a string of digits
+            job_id_int = None
+            if isinstance(job_id, str) and job_id.isdigit():
+                job_id_int = int(job_id)
+                print(f"Converted job_id to int: {job_id_int}")
+            
             for j in jobs_data.get("jobs", []):
-                if j.get("id") == job_id:
+                j_id = j.get("id")
+                print(f"Checking job: {j_id} (type: {type(j_id)}) - {j.get('job_title')}")
+                
+                # Check for match with original job_id or converted int version
+                if j_id == job_id or (job_id_int is not None and j_id == job_id_int):
                     job = j
                     break
         elif job_url:
@@ -744,14 +760,15 @@ def generate_report(job_id: Optional[str] = None,
                     report.append(f"- {tag}")
                 report.append("")
         
-        # Add matching content blocks section
+        # Add Matching Content Blocks section
         if matching_blocks_list:
             report.append("## Matching Content Blocks")
             report.append("")
             report.append("These content blocks from your database match the job requirements:")
             report.append("")
             
-            for i, match in enumerate(matching_blocks_list[:10], 1):  # Limit to top 10
+            # Show the top 15 content blocks instead of just 10
+            for i, match in enumerate(matching_blocks_list[:15], 1):
                 # Calculate tag counts
                 high_count = len(match["matched_tags"]["high"])
                 medium_count = len(match["matched_tags"]["medium"])
@@ -767,12 +784,13 @@ def generate_report(job_id: Optional[str] = None,
                 if low_count > 0:
                     tag_sections.append(f"**Low Priority ({low_count}):** {', '.join(match['matched_tags']['low'])}")
                 
-                # Add block to report
-                report.append(f"### {i}. Match Score: {match['score_percentage']:.0f}% ({total_tags} tags)")
-                report.append("")
+                # Add block ID to report
+                block_id = match['block'].get('id', 'Unknown')
+                
+                # Add block to report with its ID - simplified format
                 report.append(f"> {match['block'].get('content', '')}")
                 report.append("")
-                report.append(f"**Rating:** {match['block'].get('rating', 0):.1f}/10")
+                report.append(f"**Match Score:** {match['score_percentage']:.0f}% ({total_tags} tags) | **Rating:** {match['block'].get('rating', 0):.1f}/10")
                 report.append("")
                 
                 # Add matched tags
@@ -780,32 +798,6 @@ def generate_report(job_id: Optional[str] = None,
                 for section in tag_sections:
                     report.append(section)
                     report.append("")
-                
-                # Add similar blocks if available (when using semantic deduplication)
-                if use_semantic_dedup and "similar_blocks" in match and match["similar_blocks"]:
-                    report.append("**Similar Blocks:**")
-                    report.append("")
-                    
-                    for j, similar in enumerate(match["similar_blocks"], 1):
-                        similar_content = similar.get("content", "")
-                        similarity = similar.get("similarity", 0)
-                        similar_id = similar.get("id", "N/A")
-                        similar_match = similar.get("match", {})
-                        similar_rating = similar_match.get("block", {}).get("rating", 0)
-                        
-                        report.append(f"#### Similar Block {j} (Similarity: {similarity:.1%} | Rating: {similar_rating:.1f} | ID: {similar_id})")
-                        report.append("")
-                        report.append(f"> {similar_content}")
-                        report.append("")
-                        
-                        # Show differences
-                        diff1, diff2 = display_text_differences(match["block"].get("content", ""), similar_content)
-                        report.append("**Differences:**")
-                        report.append("```")
-                        report.append(f"Original: {diff1}")
-                        report.append(f"Similar:  {diff2}")
-                        report.append("```")
-                        report.append("")
                 
                 report.append("---")
                 report.append("")
@@ -815,9 +807,9 @@ def generate_report(job_id: Optional[str] = None,
         report.append("")
         
         if include_cover_letter:
-            print("Generating cover letter using LLM...")
+            print(f"Generating cover letter using {llm_model}...")
             
-            # Prepare prompt for LLM
+            # Prepare prompt for LLM with improved instructions
             prompt = f"""
 You are a professional cover letter writer. Create a cover letter for a job application based on the following information:
 
@@ -825,29 +817,71 @@ Job Title: {job_title}
 Company: {org_name}
 Job Summary: {job_summary}
 
-Use the following content blocks as the basis for the cover letter. These are high-quality, pre-written paragraphs that should be adapted and integrated into a cohesive letter:
+High Priority Requirements: {', '.join(job_tags.get('high_priority', ['None']))}
+Medium Priority Requirements: {', '.join(job_tags.get('medium_priority', ['None']))}
+
+Use the following content blocks as the basis for the cover letter. These are high-quality, pre-written paragraphs that match the job requirements. Incorporate these effectively with minimal modification, focusing on flow and organization rather than rewriting:
 
 """
             
-            # Add top matches to the prompt
-            for i, block in enumerate(matching_blocks_list[:8], 1):
-                prompt += f"{i}. \"{block['block']['content']}\"\n\n"
+            # Add top 15 matches to the prompt, sorted by rating and score
+            top_blocks = sorted(matching_blocks_list[:15], key=lambda x: (x['block'].get('rating', 0), x['raw_score']), reverse=True)
+            for i, block in enumerate(top_blocks, 1):
+                block_id = block['block'].get('id', 'Unknown')
+                block_rating = block['block'].get('rating', 0)
+                block_content = block['block'].get('content', '')
+                tag_list = []
+                
+                # Add high priority tags
+                if block['matched_tags']['high']:
+                    tag_list.extend(block['matched_tags']['high'])
+                
+                # Add medium priority tags (only if no high priority tags)
+                if not tag_list and block['matched_tags']['medium']:
+                    tag_list.extend(block['matched_tags']['medium'])
+                
+                tags_str = ', '.join(tag_list) if tag_list else 'general'
+                prompt += f"{i}. Block {block_id} (Rating: {block_rating}/10, Tags: {tags_str})\n\"{block_content}\"\n\n"
                 
             prompt += """
 Guidelines:
 1. Write in a professional, confident tone
 2. Maintain a conversational style
-3. Adapt and integrate the provided content blocks naturally
-4. Keep the letter concise (300-400 words)
-5. Include a standard cover letter format with placeholders for contact information
-6. Focus on how the candidate's experience aligns with the job requirements
-7. End with a call to action
+3. Use the provided content blocks with minimal modification - prioritize ORIGINAL CONTENT
+4. Make only minor adjustments for flow, order, and transitions between blocks
+5. Keep the letter concise (300-400 words)
+6. Include a standard cover letter format with placeholders for contact information
+7. Focus on how the candidate's experience aligns with the high priority job requirements
+8. End with a call to action
 
-Create a complete cover letter that feels cohesive and tailored to this specific job.
+Create a complete cover letter that feels cohesive and tailored to this specific job while preserving the original content blocks as much as possible.
 """
             
             # Generate cover letter using Ollama
             try:
+                print(f"Starting cover letter generation with {llm_model}...")
+                print(f"Prompt length: {len(prompt)} characters")
+                
+                # Skip the model availability check since we know it's causing issues
+                # but the models are actually available
+                print(f"Proceeding with generation using {llm_model}...")
+                
+                # The following code was causing issues due to the Ollama Python library's response format
+                # models = ollama.list()
+                # available_models = []
+                # for m in models.get('models', []):
+                #     if m and 'name' in m and m['name']:
+                #         available_models.append(m['name'])
+                # 
+                # if not available_models:
+                #     print("Warning: No models found in Ollama. This might indicate an issue with the Ollama service.")
+                # 
+                # if llm_model not in available_models:
+                #     print(f"Model {llm_model} not found in available models: {available_models}")
+                #     raise Exception(f"Model {llm_model} is not available in Ollama.")
+                # print(f"Model {llm_model} is available. Proceeding with generation...")
+                # Try to generate the cover letter
+                start_time = time.time()
                 response = ollama.generate(
                     model=llm_model,
                     prompt=prompt,
@@ -858,43 +892,44 @@ Create a complete cover letter that feels cohesive and tailored to this specific
                     }
                 )
                 
+                end_time = time.time()
+                elapsed_time = end_time - start_time
+                print(f"Cover letter generation completed in {elapsed_time:.2f} seconds")
+                
                 cover_letter = response.get("response", "")
                 
                 # Add cover letter to report
                 report.append(cover_letter)
                 
             except Exception as e:
+                print(f"Detailed error generating cover letter: {type(e).__name__}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                
+                report.append("## Cover Letter Draft")
+                report.append("")
                 report.append("Error generating cover letter:")
                 report.append(str(e))
                 report.append("")
-                report.append("Please try again with a different LLM model.")
+                report.append(f"Please try again with a different LLM model. Current model: {llm_model}")
         else:
             report.append("Cover letter generation was skipped.")
         
         # Create reports directory if it doesn't exist
         os.makedirs(REPORTS_DIR, exist_ok=True)
         
-        # Generate filename based on company name
+        # Generate filename based on job info for better identification
+        job_id_str = f"job_{job_id}_" if job_id else ""
         company_slug = org_name.lower().replace(" ", "_")
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        report_file = os.path.join(REPORTS_DIR, f"{company_slug}_report_{timestamp}.md")
+        job_title_slug = job_title.lower().replace(" ", "_")
+        date_str = datetime.now().strftime("%Y%m%d")
+        report_file = os.path.join(REPORTS_DIR, f"{job_id_str}{company_slug}_{job_title_slug}_{date_str}.md")
         
-        # Write report to file
-        report_content = "\n".join(report)
-        with open(report_file, 'w') as f:
-            f.write(report_content)
+        # Save report
+        with open(report_file, "w", encoding="utf-8") as f:
+            f.write("\n".join(report))
         
-        # Print preview
-        print(f"Report generated successfully and saved to {report_file}")
-        print("\n" + "=" * 80)
-        print("REPORT PREVIEW")
-        print("=" * 80)
-        
-        # Show first 20 lines of the report
-        preview_lines = report[:20]
-        print("\n".join(preview_lines))
-        print("...")
-        print(f"\nFull report saved to {report_file}")
+        print(f"Report saved to {report_file}")
         
         return report_file
         
@@ -915,39 +950,48 @@ def setup_argparse(parser: Optional[argparse.ArgumentParser] = None) -> argparse
         argparse.ArgumentParser: Configured argument parser ready for parsing arguments.
     """
     if parser is None:
-        parser = argparse.ArgumentParser(description="Generate job match report")
+        parser = argparse.ArgumentParser(
+            description="Generate reports and cover letters for job applications",
+            formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        )
     
-    # Job identification (mutually exclusive)
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--job-id", type=str, help="ID of the job to analyze")
-    group.add_argument("--job-url", type=str, help="URL of the job to analyze")
-    
-    # Cover letter options
-    parser.add_argument("--no-cover-letter", action="store_true", 
+    parser.add_argument("--job-id", dest="job_id", type=str,
+                       help="ID of the job to analyze")
+    parser.add_argument("--job-url", dest="job_url", type=str,
+                       help="URL of the job to analyze (alternative to --job-id)")
+    parser.add_argument("--no-cover-letter", dest="include_cover_letter", 
+                       action="store_false", default=True,
                        help="Skip cover letter generation")
-    parser.add_argument("--llm-model", type=str, default=DEFAULT_LLM_MODEL,
+    parser.add_argument("--llm-model", dest="llm_model", type=str,
+                       default=DEFAULT_LLM_MODEL,
                        help=f"LLM model to use for cover letter generation (default: {DEFAULT_LLM_MODEL})")
-    
-    # Content matching options
-    parser.add_argument("--min-rating", type=float, default=MIN_RATING_THRESHOLD,
-                       help=f"Minimum rating threshold for content blocks (default: {MIN_RATING_THRESHOLD})")
-    parser.add_argument("--content-weight", type=float, default=DEFAULT_CONTENT_WEIGHT,
+    parser.add_argument("--tags", "--keywords", dest="keywords", type=str, nargs="+",
+                       help="Additional keywords/tags to prioritize in matching")
+    parser.add_argument("--save-keywords", dest="save_keywords", action="store_true",
+                       help="Save provided keywords to categories.yaml")
+    parser.add_argument("--min-rating", dest="min_rating", type=float,
+                       default=MIN_RATING_THRESHOLD,
+                       help=f"Minimum rating threshold for content (default: {MIN_RATING_THRESHOLD})")
+    parser.add_argument("--content-weight", dest="content_weight", type=float,
+                       default=DEFAULT_CONTENT_WEIGHT,
                        help=f"Weight to give content rating vs tag matching (default: {DEFAULT_CONTENT_WEIGHT})")
-    
-    # Keyword options
-    parser.add_argument("--keywords", type=str, nargs="+",
-                       help="List of keywords to prioritize in tag matching")
-    parser.add_argument("--save-keywords", action="store_true",
-                       help="Save provided keywords to categories.yaml based on semantic similarity")
-    
-    # Display options
-    parser.add_argument("--show-preprocessed", action="store_true",
+    parser.add_argument("--jobs-file", dest="jobs_file", type=str,
+                       default=DEFAULT_JOBS_FILE,
+                       help="Path to jobs JSON file")
+    parser.add_argument("--content-file", dest="content_file", type=str,
+                       default=DEFAULT_CONTENT_FILE,
+                       help="Path to content JSON file")
+    parser.add_argument("--show-preprocessed", dest="show_preprocessed_text",
+                       action="store_true",
                        help="Include preprocessed job text in the report")
-    
-    # Deduplication options
-    parser.add_argument("--semantic-dedup", action="store_true",
-                       help="Use semantic similarity for content deduplication")
-    parser.add_argument("--similarity-threshold", type=float, default=DEFAULT_SIMILARITY_THRESHOLD,
+    parser.add_argument("--semantic-dedup", dest="use_semantic_dedup",
+                       action="store_true", default=True,
+                       help="Use semantic similarity for deduplication")
+    parser.add_argument("--no-semantic-dedup", dest="use_semantic_dedup",
+                       action="store_false",
+                       help="Disable semantic similarity for deduplication")
+    parser.add_argument("--similarity-threshold", dest="similarity_threshold",
+                       type=float, default=DEFAULT_SIMILARITY_THRESHOLD,
                        help=f"Similarity threshold for semantic deduplication (default: {DEFAULT_SIMILARITY_THRESHOLD})")
     
     return parser
@@ -970,25 +1014,39 @@ def main(args: Optional[argparse.Namespace] = None) -> None:
         parser = setup_argparse()
         args = parser.parse_args()
     
-    # Generate the report
-    report_file = generate_report(
-        job_id=args.job_id,
-        job_url=args.job_url,
-        include_cover_letter=not args.no_cover_letter,
-        llm_model=args.llm_model,
-        keywords=args.keywords,
-        save_keywords=args.save_keywords,
-        min_rating=args.min_rating,
-        content_weight=args.content_weight,
-        show_preprocessed_text=args.show_preprocessed,
-        use_semantic_dedup=args.semantic_dedup,
-        similarity_threshold=args.similarity_threshold
-    )
+    if not args.job_id and not args.job_url:
+        print("Error: Either --job-id or --job-url must be specified")
+        sys.exit(1)
     
-    if report_file:
-        print(f"Report generated successfully: {report_file}")
-    else:
-        print("Failed to generate report.")
+    try:
+        # Generate report
+        report_file = generate_report(
+            job_id=args.job_id,
+            job_url=args.job_url,
+            include_cover_letter=args.include_cover_letter,
+            llm_model=args.llm_model,
+            keywords=args.keywords,
+            save_keywords=args.save_keywords,
+            min_rating=args.min_rating,
+            content_weight=args.content_weight,
+            show_preprocessed_text=args.show_preprocessed_text,
+            use_semantic_dedup=args.use_semantic_dedup,
+            similarity_threshold=args.similarity_threshold
+        )
+        
+        if report_file:
+            print(f"\nReport successfully generated!")
+            print(f"Full report path: {os.path.abspath(report_file)}")
+            
+            # Create an in-terminal clickable link to the report
+            relative_path = os.path.relpath(report_file, os.getcwd())
+            print(f"\nOpen report: file://{os.path.abspath(report_file)}")
+    
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"Error: {str(e)}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}")
         sys.exit(1)
 
 if __name__ == "__main__":

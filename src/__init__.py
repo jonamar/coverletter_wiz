@@ -7,4 +7,4 @@ cover letters based on job descriptions, with advanced content matching capabili
 
 """Coverletter Wizard package."""
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"

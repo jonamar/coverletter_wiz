@@ -23,8 +23,14 @@ PARENT_DIR: Final[str] = os.path.dirname(REPO_DIR)
 # Path to the data directory (outside the repository)
 DATA_DIR: Final[str] = os.path.join(PARENT_DIR, "coverletter_data")
 
+# Path to the reports directory within the data directory
+REPORTS_DIR: Final[str] = os.path.join(DATA_DIR, "reports")
+
 # Ensure the data directory exists
 os.makedirs(DATA_DIR, exist_ok=True)
+
+# Ensure the reports directory exists
+os.makedirs(REPORTS_DIR, exist_ok=True)
 
 # Default LLM model to use for analysis and generation
 DEFAULT_LLM_MODEL: Final[str] = "gemma3:12b"

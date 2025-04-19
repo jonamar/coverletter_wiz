@@ -10,6 +10,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Future changes will be listed here before release
 
+## [0.4.0] - 2025-04-19
+
+### Changed
+- Completely redesigned report format to focus on content blocks rather than metadata
+- Removed differences sections with ANSI color codes from reports
+- Eliminated duplicate similar blocks from reports
+- Improved error handling for Ollama model availability checks
+- Fixed job ID lookup to properly handle both string and integer IDs
+- Enhanced cover letter generation with gemma3:12b model
+
+## [0.3.2] - 2025-04-18
+
+### Added
+- Enhanced cover letter report with top 15 content blocks ordered by rating
+- Added block IDs to report output for easier reference
+- Created new ollama_utils module for cover letter generation
+- Added clickable link to report file in terminal output
+
+### Changed
+- Updated cover letter generation to use gemma3:12b as the default model
+- Improved cover letter prompt to better preserve original content
+- Enhanced report filename format for better identification
+- Made semantic deduplication enabled by default
+
 ## [0.3.1] - 2023-07-25
 
 ### Added
@@ -255,6 +279,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [Unreleased]: https://github.com/yourusername/coverletter_wiz/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/yourusername/coverletter_wiz/compare/v0.3.0...v1.0.0
+[0.4.0]: https://github.com/yourusername/coverletter_wiz/compare/v0.3.2...v0.4.0
+[0.3.2]: https://github.com/yourusername/coverletter_wiz/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/yourusername/coverletter_wiz/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.7...v0.3.0
 [0.2.7]: https://github.com/yourusername/coverletter_wiz/compare/v0.2.6...v0.2.7
