@@ -16,7 +16,6 @@ sys.path.append(str(REPO_DIR))
 
 # Import CLI modules
 from src.cli import analyze_job
-from src.cli import match_content
 from src.cli import export_content
 from src.cli import generate_report
 from src.cli import process_content
@@ -53,13 +52,6 @@ def main():
     )
     analyze_job.setup_argparse(analyze_parser)
     
-    # Match content command
-    match_parser = subparsers.add_parser(
-        "match", 
-        help="Match cover letter content to job requirements"
-    )
-    match_content.setup_argparse(match_parser)
-    
     # Export content command
     export_parser = subparsers.add_parser(
         "export", 
@@ -89,8 +81,6 @@ def main():
         rate_content_unified.main(args)
     elif args.command == "analyze":
         analyze_job.main(args)
-    elif args.command == "match":
-        match_content.main(args)
     elif args.command == "export":
         export_content.main(args)
     elif args.command == "report":
