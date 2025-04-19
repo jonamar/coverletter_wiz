@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "coverletter_wiz"
+dynamic = ["version"]
+description = "A tool for analyzing and generating cover letters"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+keywords = ["cover letter", "job application", "nlp", "text analysis"]
+authors = [
+    {name = "Jon Amar", email = "jon@example.com"}
+]
+maintainers = [
+    {name = "Jon Amar", email = "jon@example.com"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Text Processing :: Linguistic",
+]
+dependencies = [
+    "spacy>=3.7.2",
+    "beautifulsoup4>=4.13.3",
+    "PyYAML>=6.0.2",
+    "ollama>=0.4.7",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/jonamar/coverletter_wiz"
+"Bug Tracker" = "https://github.com/jonamar/coverletter_wiz/issues"
+"Documentation" = "https://github.com/jonamar/coverletter_wiz/wiki"
+"Source Code" = "https://github.com/jonamar/coverletter_wiz"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.dynamic]
+version = {attr = "coverletter_wiz.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["coverletter_wiz*"]
+exclude = ["tests*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -v"
+testpaths = ["tests"]
