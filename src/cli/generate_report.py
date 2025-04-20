@@ -16,6 +16,8 @@ import re
 import sys
 import time
 import yaml
+import uuid
+import requests
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple, Set, Union
@@ -26,6 +28,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from src.config import DATA_DIR, REPORTS_DIR, DEFAULT_LLM_MODEL
 from src.utils.spacy_utils import prioritize_tags_for_job, nlp, safe_similarity, has_vector, normalize_text, assign_tags_with_spacy, preprocess_job_text, analyze_content_block_similarity
 from src.utils.diff_utils import display_text_differences, display_markdown_differences
+from src.utils.html_utils import extract_main_content
 
 # We need to import ollama here, not from a non-existent ollama_utils module
 import ollama
@@ -114,6 +117,140 @@ def add_keywords_to_categories(keywords: List[str], categories: Dict[str, List[s
     
     return categories, added_keywords
 
+def fetch_and_analyze_job(job_url: str, llm_model: str) -> Optional[Dict[str, Any]]:
+    """Fetches and analyzes a job from the provided URL.
+    
+    This function fetches the job description from the provided URL, extracts the main content,
+    and analyzes it to extract relevant information such as job title, organization name, and tags.
+    
+    Args:
+        job_url: URL of the job to analyze.
+        llm_model: LLM model to use for analysis (not currently used).
+        
+    Returns:
+        Dictionary containing the analyzed job information if successful, None otherwise.
+    """
+    try:
+        # Fetch job description from URL
+        response = requests.get(job_url)
+        if response.status_code != 200:
+            print(f"Failed to fetch job from {job_url}: {response.status_code}")
+            return None
+        
+        # Extract main content from HTML
+        main_content = extract_main_content(response.text)
+        
+        # Analyze job description to extract relevant information
+        job_title, org_name, job_summary, job_text, prioritized_tags = analyze_job_description(main_content, llm_model)
+        
+        # Create job dictionary
+        job = {
+            "id": str(uuid.uuid4()),
+            "url": job_url,
+            "job_title": job_title,
+            "org_name": org_name,
+            "summary": job_summary,
+            "raw_text": job_text,
+            "tags": prioritized_tags
+        }
+        
+        return job
+    
+    except Exception as e:
+        print(f"Error fetching and analyzing job from {job_url}: {e}")
+        return None
+
+def analyze_job_description(job_description: str, llm_model: str = DEFAULT_LLM_MODEL) -> Tuple[str, str, str, str, Dict[str, List[str]]]:
+    """Analyzes a job description to extract relevant information.
+    
+    This function takes a job description and uses NLP techniques and the LLM to extract:
+    1. The job title
+    2. Organization name
+    3. A summary of the position
+    4. Tags/keywords categorized by priority
+    5. The full preprocessed job text
+    
+    Args:
+        job_description: Job description to analyze.
+        llm_model: LLM model to use for extracting job details.
+        
+    Returns:
+        Tuple containing the extracted job title, organization name, job summary, 
+        processed job text, and prioritized tags dictionary.
+    """
+    # First preprocess the job text to remove boilerplate content
+    processed_text = preprocess_job_text(job_description)
+    
+    # Extract basic job info using LLM
+    try:
+        job_info_prompt = f"""Given the following job posting text, extract:
+1. The organization/company name
+2. The job title
+3. A one-sentence summary of the position (max 25 words)
+
+Job posting text:
+"{processed_text[:2000]}"
+
+Output your answer in this format exactly:
+ORG: [Organization Name]
+TITLE: [Job Title]
+SUMMARY: [One sentence summary]
+"""
+        
+        # Call the LLM to extract basic information
+        print(f"Using LLM model: {llm_model}")
+        response = ollama.generate(model=llm_model, prompt=job_info_prompt)
+        
+        # Extract text from response
+        job_info_completion = ""
+        for chunk in response:
+            if isinstance(chunk, dict):
+                job_info_completion += chunk.get('response', '')
+            elif isinstance(chunk, tuple) and chunk[0] == "response":
+                job_info_completion += chunk[1]
+            
+        # Default values
+        org_name = "Unknown Organization"
+        job_title = "Unknown Position" 
+        summary = "No summary available"
+        
+        # Parse LLM output
+        for line in job_info_completion.split('\n'):
+            line = line.strip()
+            if line.startswith('ORG:'):
+                org_name = line.replace('ORG:', '').strip()
+            elif line.startswith('TITLE:'):
+                job_title = line.replace('TITLE:', '').strip()
+            elif line.startswith('SUMMARY:'):
+                summary = line.replace('SUMMARY:', '').strip()
+        
+        # Use fallback values if extraction failed
+        if org_name == "Unknown Organization" and job_title == "Unknown Position":
+            print("Warning: LLM failed to extract organization name and job title.")
+            print("LLM output was:")
+            print(job_info_completion)
+    
+    except Exception as e:
+        print(f"Error using LLM to extract job details: {e}")
+        org_name = "Unknown Organization"
+        job_title = "Unknown Position" 
+        summary = "No summary available"
+    
+    # Load categories for tag analysis
+    try:
+        with open(CATEGORIES_FILE, 'r') as f:
+            categories = yaml.safe_load(f)
+    except Exception as e:
+        print(f"Warning: Could not load categories from {CATEGORIES_FILE}: {e}")
+        print("Using empty categories for tag analysis.")
+        categories = {}
+    
+    # Use spaCy to generate prioritized tags
+    print("Using spaCy for tag analysis")
+    prioritized_tags = prioritize_tags_for_job(processed_text, categories)
+    
+    return job_title, org_name, summary, processed_text, prioritized_tags
+
 def generate_report(job_id: Optional[str] = None, 
                    job_url: Optional[str] = None, 
                    include_cover_letter: bool = True, 
@@ -171,9 +308,20 @@ def generate_report(job_id: Optional[str] = None,
             except ValueError:
                 print(f"Warning: Invalid weight values in '{weights}'. Using defaults.")
         
-        # Load job data
-        with open(jobs_file, 'r') as f:
-            jobs_data = json.load(f)
+        # Create jobs directory if it doesn't exist
+        jobs_dir = os.path.dirname(jobs_file)
+        os.makedirs(jobs_dir, exist_ok=True)
+        
+        # Initialize jobs data if file doesn't exist
+        if not os.path.exists(jobs_file):
+            print(f"Notice: Jobs file {jobs_file} does not exist. Creating new file.")
+            jobs_data = {"jobs": []}
+            with open(jobs_file, 'w') as f:
+                json.dump(jobs_data, f)
+        else:
+            # Load job data
+            with open(jobs_file, 'r') as f:
+                jobs_data = json.load(f)
         
         # Find the job by ID or URL
         job = None
@@ -198,10 +346,23 @@ def generate_report(job_id: Optional[str] = None,
                     job = j
                     break
         elif job_url:
+            # First try to find the job in existing data
             for j in jobs_data.get("jobs", []):
                 if j.get("url") == job_url:
                     job = j
                     break
+            
+            # If job not found in database but URL provided, fetch and analyze it
+            if not job:
+                print(f"Job with URL {job_url} not found in database. Fetching and analyzing...")
+                job = fetch_and_analyze_job(job_url, llm_model)
+                
+                # Save the job to the database if successfully analyzed
+                if job:
+                    print("Adding newly analyzed job to database")
+                    jobs_data.setdefault("jobs", []).append(job)
+                    with open(jobs_file, 'w') as f:
+                        json.dump(jobs_data, f, indent=2)
         
         if not job:
             print("Job not found. Please provide a valid job ID or URL.")
@@ -213,6 +374,7 @@ def generate_report(job_id: Optional[str] = None,
         job_url = job.get("url", "")
         job_summary = job.get("summary", "")
         job_text = job.get("raw_text", "")
+        job_tags = job.get("tags", {})
         
         print(f"Found job: {job_title} at {org_name}")
         
@@ -232,91 +394,29 @@ def generate_report(job_id: Optional[str] = None,
                 with open(CATEGORIES_FILE, 'w') as f:
                     yaml.dump(categories, f, default_flow_style=False, sort_keys=False)
                 print(f"Successfully saved {len(added_keywords)} new keywords to categories")
-                
-                # Re-tag content blocks with the updated keywords
-                print("Re-tagging content blocks with updated keywords...")
-                try:
-                    # Load content blocks
-                    with open(content_file, 'r') as f:
-                        content_data = json.load(f)
-                    
-                    # Re-tag each content block based on the actual file structure
-                    updated_count = 0
-                    
-                    # Create a flat list of all tags from all categories
-                    all_tags = []
-                    for category_name, tags in categories.items():
-                        all_tags.extend(tags)
-                    
-                    # Iterate through each document in the content data
-                    for doc_key, doc_data in content_data.items():
-                        # Skip if doc_data is not a dictionary
-                        if not isinstance(doc_data, dict):
-                            continue
-                        
-                        # Skip if content is not present or not a dictionary
-                        if "content" not in doc_data or not isinstance(doc_data["content"], dict):
-                            continue
-                        
-                        # Process paragraphs
-                        paragraphs = doc_data.get("content", {}).get("paragraphs", [])
-                        
-                        for paragraph in paragraphs:
-                            if not isinstance(paragraph, dict):
-                                continue
-                                
-                            text = paragraph.get("text", "")
-                            if text:
-                                # Get the top matching tags for this text
-                                tag_results = assign_tags_with_spacy(text, categories, max_tags=10)
-                                # Extract just the tag names
-                                paragraph["tags"] = [item["name"] for item in tag_results if item.get("name")]
-                                updated_count += 1
-                            
-                            # Process sentences within paragraphs
-                            if "sentences" in paragraph and isinstance(paragraph["sentences"], list):
-                                for sentence in paragraph["sentences"]:
-                                    if not isinstance(sentence, dict):
-                                        continue
-                                        
-                                    text = sentence.get("text", "")
-                                    if text:
-                                        # Get the top matching tags for this text
-                                        tag_results = assign_tags_with_spacy(text, categories, max_tags=10)
-                                        # Extract just the tag names
-                                        sentence["tags"] = [item["name"] for item in tag_results if item.get("name")]
-                                        updated_count += 1
-                        
-                        # Update document tags if present
-                        if "document_tags" in doc_data["content"]:
-                            # Use the first paragraph text as representative of the document
-                            if doc_data["content"]["paragraphs"]:
-                                doc_text = " ".join([p.get("text", "") for p in doc_data["content"]["paragraphs"][:3] if isinstance(p, dict)])
-                                # Get the top matching tags for this text
-                                tag_results = assign_tags_with_spacy(doc_text, categories, max_tags=15)
-                                # Extract just the tag names
-                                doc_data["content"]["document_tags"] = [item["name"] for item in tag_results if item.get("name")]
-                                updated_count += 1
-                    
-                    # Save updated content blocks
-                    with open(content_file, 'w') as f:
-                        json.dump(content_data, f, indent=2)
-                    
-                    print(f"Successfully re-tagged {updated_count} content blocks with updated keywords")
-                except Exception as e:
-                    import traceback
-                    print(f"Error re-tagging content blocks: {e}")
-                    print(traceback.format_exc())
-            else:
-                print("No new keywords were added (all already exist)")
-        
-        # Create manual keywords for this run (even if not saving)
-        manual_keywords = None
+
+        # Apply any manual keywords from command line
         if keywords:
             manual_keywords = {"high_priority": keywords}
-        
-        # Generate tags for the job using prioritize_tags_for_job
-        job_tags = prioritize_tags_for_job(job_text, categories, manual_keywords)
+            # If job was just fetched, update tags with manual keywords
+            if "tags" in job:
+                # Make a copy of the existing tags
+                updated_tags = {k: list(v) for k, v in job["tags"].items()}
+                # Add manual keywords to high priority
+                for kw in keywords:
+                    if kw not in updated_tags.get("high_priority", []):
+                        updated_tags.setdefault("high_priority", []).append(kw)
+                job_tags = updated_tags
+            else:
+                # Generate tags for the job using prioritize_tags_for_job
+                job_tags = prioritize_tags_for_job(job_text, categories, manual_keywords)
+        else:
+            # If job was just fetched, use the tags that were already analyzed
+            if "tags" in job:
+                job_tags = job["tags"]
+            else:
+                # Otherwise generate tags for the job using prioritize_tags_for_job
+                job_tags = prioritize_tags_for_job(job_text, categories)
         
         # Find content blocks from cover letter content data
         with open(content_file, 'r') as f:

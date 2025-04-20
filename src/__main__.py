@@ -16,7 +16,6 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 # Import CLI modules
 from src.cli.rate_content import main as rate_content_main
-from src.cli.analyze_job import main as analyze_job_main
 from src.cli.process_text import main as process_text_main
 from src.cli.export_content import main as export_content_main
 from src.cli.generate_report import main as generate_report_main
@@ -48,13 +47,6 @@ def setup_argparse() -> argparse.ArgumentParser:
     rate_parser.add_argument("--legends", action="store_true", help="Run legends tournament")
     rate_parser.add_argument("--stats", action="store_true", help="Show content block statistics")
     
-    # Job analysis command
-    analyze_parser = subparsers.add_parser("analyze", help="Analyze a job posting and extract requirements")
-    analyze_parser.add_argument("--url", type=str, help="URL of the job posting to analyze")
-    analyze_parser.add_argument("--list", action="store_true", help="List all analyzed jobs")
-    analyze_parser.add_argument("--display", type=int, help="Display a job by its ID")
-    analyze_parser.add_argument("--model", type=str, help="LLM model to use for analysis")
-    
     # Export content command
     export_parser = subparsers.add_parser("export", help="Export high-rated content blocks to a markdown file")
     
@@ -65,6 +57,9 @@ def setup_argparse() -> argparse.ArgumentParser:
     report_parser.add_argument("--no-cover-letter", dest="include_cover_letter", action="store_false", default=True, help="Skip cover letter generation")
     report_parser.add_argument("--llm-model", type=str, help="LLM model to use for cover letter generation")
     report_parser.add_argument("--tags", "--keywords", type=str, nargs="+", help="Additional keywords/tags to prioritize in matching")
+    report_parser.add_argument("--list", action="store_true", help="List all available jobs")
+    report_parser.add_argument("--weights", type=str, help="Comma-separated weights for high,medium,low priorities and multi-tag bonus (default: 3,2,1,0.1)")
+    report_parser.add_argument("--min-rating", type=float, help="Minimum rating threshold for content (default: 7.0)")
     
     return parser
 
@@ -101,19 +96,6 @@ def main() -> None:
             sys.argv.append("--stats")
         rate_content_main()
     
-    elif args.command == "analyze":
-        # Convert args to the format expected by analyze_job_main
-        sys.argv = [sys.argv[0]]
-        if args.url:
-            sys.argv.extend(["--url", args.url])
-        if args.list:
-            sys.argv.append("--list")
-        if args.display is not None:
-            sys.argv.extend(["--display", str(args.display)])
-        if args.model:
-            sys.argv.extend(["--model", args.model])
-        analyze_job_main()
-    
     elif args.command == "export":
         export_content_main()
     
@@ -130,6 +112,12 @@ def main() -> None:
             sys.argv.extend(["--llm-model", args.llm_model])
         if args.tags:
             sys.argv.extend(["--tags"] + args.tags)
+        if args.list:
+            sys.argv.append("--list")
+        if args.weights:
+            sys.argv.extend(["--weights", args.weights])
+        if args.min_rating:
+            sys.argv.extend(["--min-rating", str(args.min_rating)])
         generate_report_main()
 
 if __name__ == "__main__":

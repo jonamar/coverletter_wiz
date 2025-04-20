@@ -58,9 +58,8 @@ This approach ensures that you maintain complete control over your personal info
 Cover Letter Wizard integrates several key components:
 
 1. **Content Processing**: Extract, rate, and refine content blocks from your existing cover letters
-2. **Job Analysis**: Analyze job postings to extract requirements and key information
-3. **Content Matching**: Match your high-rated content to job requirements
-4. **Report Generation**: Generate comprehensive reports and draft cover letters
+2. **Content Matching**: Match your high-rated content to job requirements
+3. **Report Generation**: Generate comprehensive reports and draft cover letters
 
 ## System Architecture
 
@@ -79,7 +78,7 @@ flowchart LR
       TextProcessor["Text Processor<br>Extract content from raw text"]
       DataManager["Data Manager<br>Central data access layer"]
       ContentProcessor["Content Processor<br>Extract & rate content blocks"]
-      JobAnalyzer["Job Analyzer<br>Scrape & analyze job postings"]
+      JobAnalyzer["Job Analyzer<br>Integrated in report command"]
       ContentMatcher["Content Matcher<br>Match content to job requirements"]
   end
 
@@ -93,8 +92,7 @@ flowchart LR
   %% User Interfaces
   subgraph UI[User Interfaces]
       RateUI["Rate Content CLI<br>Batch rating & tournaments"]
-      JobUI["Job Analysis CLI<br>Job posting analysis"]
-      ReportUI["Report Generation CLI<br>Content matching & reports"]
+      ReportUI["Report Generation CLI<br>Job analysis & content matching"]
       MainUI["Main CLI<br>Unified interface"]
   end
 
@@ -118,11 +116,10 @@ flowchart LR
   ContentMatcher <--> LLM
 
   RateUI <--> ContentProcessor
-  JobUI <--> JobAnalyzer
+  ReportUI <--> JobAnalyzer
   ReportUI <--> ContentMatcher
 
   MainUI --> RateUI
-  MainUI --> JobUI
   MainUI --> ReportUI
   
   %% Style Definitions (High contrast)
@@ -133,7 +130,7 @@ flowchart LR
   
   class RawText,ContentDB,JobDB,Reports dataStore;
   class TextProcessor,DataManager,ContentProcessor,JobAnalyzer,ContentMatcher core;
-  class RateUI,JobUI,ReportUI,MainUI ui;
+  class RateUI,ReportUI,MainUI ui;
   class SpaCy,LLM,Internet external;
 ```
 
@@ -147,9 +144,7 @@ CoverLetter Wiz uses a modular architecture with separated processing, rating, a
 
 3. **Content Rating**: The ContentProcessor provides various rating workflows (batch rating, tournaments, category refinement) to help you identify your strongest content.
 
-4. **Job Analysis**: The JobAnalyzer analyzes job postings, extracting key requirements and creating structured job profiles.
-
-5. **Content Matching**: The ContentMatcher combines your rated content blocks with job requirements to help you create targeted cover letters.
+4. **Content Matching**: The ContentMatcher combines your rated content blocks with job requirements to help you create targeted cover letters.
 
 The system follows these core design principles:
 
@@ -186,16 +181,15 @@ coverletter_wiz/
 ├── core/                # Core functionality
 │   ├── __init__.py
 │   ├── content_processor.py  # Content extraction and rating
-│   ├── job_analyzer.py       # Job posting analysis
 │   └── content_matcher.py    # Content matching and reporting
 ├── cli/                 # Command-line interfaces
 │   ├── __init__.py
 │   ├── rate_content.py  # Content rating CLI
-│   ├── analyze_job.py   # Job analysis CLI
-│   └── generate_report.py # Report generation and content matching CLI
+│   └── generate_report.py # Report generation with job analysis and content matching
 ├── utils/               # Utility modules
 │   ├── __init__.py
-│   └── spacy_utils.py   # NLP processing utilities
+│   ├── spacy_utils.py   # NLP processing utilities
+│   └── html_utils.py    # HTML content extraction utilities
 ├── config.py            # Configuration for external data access
 ├── reports/             # Generated reports
 ├── templates/           # Template files
@@ -285,25 +279,18 @@ Options:
 - `--category`: Focus on a specific category
 - `--min-rating`: Only show content above this rating (default: 0)
 
-### Analyze Job
-
-Analyze job postings to extract requirements:
-
-```bash
-python -m coverletter_wiz analyze --url "https://example.com/job-posting"
-```
-
-Options:
-- `--url`: URL of the job posting to analyze
-- `--file`: Path to a local file containing job description
-- `--save`: Save the analyzed job to the database
-
 ### Generate Report
 
-Generate reports and cover letters for job applications:
+Generate reports and cover letters for job applications, with integrated job analysis:
 
 ```bash
 python -m coverletter_wiz report --job-id 123
+```
+
+or analyze a new job from a URL:
+
+```bash
+python -m coverletter_wiz report --job-url "https://example.com/job-posting"
 ```
 
 Options:
