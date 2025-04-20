@@ -42,15 +42,6 @@ def setup_argparse(parser: Optional[argparse.ArgumentParser] = None) -> argparse
                        help="Force reprocessing of all files even if unchanged")
     
     # Optional parameters
-    parser.add_argument("--archive-dir", type=str, 
-                       default=os.path.join(DATA_DIR, "text-archive"),
-                       help="Directory containing text files to process")
-    parser.add_argument("--input-file", type=str, 
-                       default=os.path.join(DATA_DIR, "json/processed_text_files.json"),
-                       help="Input file for content processing")
-    parser.add_argument("--output-file", type=str, 
-                       default=os.path.join(DATA_DIR, "json/cover_letter_content.json"),
-                       help="Output JSON file for processed content")
     parser.add_argument("--model", type=str, default="en_core_web_lg",
                        help="spaCy model to use for NLP processing")
     
@@ -81,29 +72,23 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
     
     try:
         # Set default paths using external data directory
-        archive_dir = args.archive_dir
-        input_file = args.input_file
-        output_file = args.output_file
+        archive_dir = os.path.join(DATA_DIR, "text-archive")
         
         # Ensure directories exist
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        os.makedirs(os.path.dirname(os.path.join(DATA_DIR, "json/cover_letter_content.json")), exist_ok=True)
         
         # Initialize data manager to ensure content DB is ready
         data_manager = DataManager()
         
         # Initialize text processor with en_core_web_lg model
-        processor = TextProcessor(
-            archive_dir=archive_dir,
-            input_file=input_file,
-            output_file=output_file,
-            spacy_model=args.model
-        )
+        processor = TextProcessor(spacy_model=args.model)
         
         # Process text files
         print(f"Processing text files from {archive_dir}...")
         result = processor.process_text_files(force_reprocess=args.force)
         
         if result:
+            output_file = os.path.join(DATA_DIR, "json/cover_letter_content.json")
             print(f"Successfully processed text files. Output saved to {output_file}")
             print(f"Processed {result['files_processed']} files")
             print(f"Found {result['total_blocks']} content blocks")

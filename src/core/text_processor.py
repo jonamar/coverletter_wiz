@@ -25,6 +25,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from src.utils.spacy_utils import assign_tags_with_spacy, identify_sentence_groups
 from src.core.data_manager import DataManager
+from src.config import DATA_DIR
 
 class TextProcessor:
     """Core class for processing cover letter text files.
@@ -33,17 +34,17 @@ class TextProcessor:
     generating tags using spaCy, and preserving ratings across processing runs.
     """
     
-    def __init__(self, archive_dir: str, spacy_model: str = "en_core_web_md") -> None:
+    def __init__(self, spacy_model: str = "en_core_web_md") -> None:
         """Initialize the TextProcessor.
         
         Args:
-            archive_dir: Directory containing text files to process.
             spacy_model: spaCy model to use for NLP processing.
             
         Raises:
             OSError: If the specified spaCy model cannot be loaded.
         """
-        self.archive_dir = archive_dir
+        # Set default paths using external data directory
+        self.archive_dir = os.path.join(DATA_DIR, "text-archive")
         self.spacy_model = spacy_model
         self.categories = self._load_categories()
         

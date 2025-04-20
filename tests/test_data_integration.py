@@ -417,9 +417,10 @@ Test User
             
             # Process the text files
             text_processor = TextProcessor(
-                archive_dir=self.text_archive_dir,
                 spacy_model="en_core_web_lg"
             )
+            # Temporarily override the archive_dir for testing
+            text_processor.archive_dir = self.text_archive_dir
             text_processor.process_text_files()
             
             # Reset mock
@@ -470,9 +471,10 @@ Test User
         
         # Process the text file with TextProcessor
         processor = TextProcessor(
-            archive_dir=self.text_archive_dir,
             spacy_model="en_core_web_lg"
         )
+        # Temporarily override the archive_dir for testing
+        processor.archive_dir = self.text_archive_dir
         result = processor.process_text_files()
         
         # Verify processing was successful

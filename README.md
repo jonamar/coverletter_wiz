@@ -221,8 +221,11 @@ You can find the current version in `src/__init__.py` and view the complete hist
 The application provides the following main commands:
 
 ```bash
-# Process content from a text file
-python -m coverletter_wiz process path/to/file.txt
+# Process text files from the default archive directory
+python -m coverletter_wiz process
+
+# Process with force reprocessing of all files
+python -m coverletter_wiz process --force
 
 # Rate content with various workflows
 python -m coverletter_wiz rate [batch|tournament]
