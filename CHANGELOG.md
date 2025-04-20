@@ -10,6 +10,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Future changes will be listed here before release
 
+## [0.8.0] - 2025-04-20
+
+### Added
+- Comprehensive type annotations to ContentProcessor class
+- New helper methods for more efficient content block filtering:
+  - `_get_rated_blocks()` for retrieving all rated blocks
+  - `_get_blocks_by_rating_range()` for flexible rating-based filtering
+
+### Changed
+- Optimized ContentProcessor implementation for better maintainability
+- Improved documentation with comprehensive Google-style docstrings
+- Enhanced error handling in core rating methods
+- Streamlined batch rating and tournament mode workflows
+
+### Fixed
+- Updated test suite to work with optimized ContentProcessor implementation
+- Fixed edge cases in data loading and saving operations
+- Improved robustness of mock setup in integration tests
+
+## [0.7.1] - 2025-04-19
+
+### Removed
+- Removed `--batch-size`, `--category`, and `--file` parameters from rating functionality to simplify the codebase
+- Simplified ContentProcessor class to use hardcoded batch size and default file paths
+
 ## [0.7.0] - 2025-04-19
 
 ### Changed
@@ -354,7 +379,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moved data storage to external directory for privacy
 - Updated data paths to reference external data location
 
-[Unreleased]: https://github.com/jonamar/coverletter_wiz/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/jonamar/coverletter_wiz/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/jonamar/coverletter_wiz/compare/v0.7.1...v0.8.0
+[0.7.1]: https://github.com/jonamar/coverletter_wiz/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/jonamar/coverletter_wiz/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/jonamar/coverletter_wiz/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/jonamar/coverletter_wiz/compare/v0.5.1...v0.5.2

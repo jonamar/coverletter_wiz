@@ -53,40 +53,51 @@ class ContentProcessor:
     """Process and manage cover letter content blocks.
     
     The ContentProcessor is responsible for:
-    1. Loading and parsing content blocks from raw cover letters
+    1. Loading and parsing content blocks from the content database
     2. Implementing various rating systems:
        - Batch rating for initial rating assignment
        - Tournament mode for comparing blocks within categories
-       - Legends tournament for top-rated content (10.0+)
-       - Category refinement for organizing by topic
     3. Tracking statistics and ratings for all content blocks
     4. Exporting high-rated content blocks for cover letter creation
     
     The class implements a comprehensive rating system that helps identify 
     the strongest content for use in matching to job requirements.
+    
+    Attributes:
+        data_manager (DataManager): Centralized data access manager
+        data (Dict[str, Any]): Complete content data structure
+        content_blocks (List[Dict[str, Any]]): List of all content blocks
+        total_blocks (int): Total number of content blocks
+        rated_blocks (int): Number of blocks with ratings > 0
+        high_rated_blocks (int): Number of blocks with ratings >= HIGH_RATING_THRESHOLD
+        perfect_blocks (List[Dict[str, Any]]): Blocks with perfect scores
+        legends_blocks (List[Dict[str, Any]]): Blocks in the legends tournament
+        category_stats (Dict[str, Any]): Category refinement statistics
     """
     
-    def __init__(self, json_file=None) -> None:
+    def __init__(self) -> None:
         """Initialize the ContentProcessor.
         
-        Args:
-            json_file: Path to the JSON file containing processed cover letters.
-                       If None, uses the default file from DataManager.
+        Loads content blocks from the data manager and calculates initial statistics.
+        No parameters are required as the DataManager handles data source configuration.
+        
+        Raises:
+            RuntimeError: If there's a critical error initializing the data manager
         """
         # Initialize data manager for centralized data access
-        self.data_manager = DataManager(content_file=json_file) if json_file else DataManager()
+        self.data_manager = DataManager()
         
         # Get data from the data manager
         self.data = self.data_manager.data
         self.content_blocks = self.data_manager.get_content_blocks()
         
         # Calculate statistics
-        self.total_blocks = len(self.content_blocks)
-        self.rated_blocks = len([b for b in self.content_blocks if b.get("rating", 0) > 0])
-        self.high_rated_blocks = len([b for b in self.content_blocks if b.get("rating", 0) >= HIGH_RATING_THRESHOLD])
+        self.total_blocks: int = len(self.content_blocks)
+        self.rated_blocks: int = len([b for b in self.content_blocks if b.get("rating", 0) > 0])
+        self.high_rated_blocks: int = len([b for b in self.content_blocks if b.get("rating", 0) >= HIGH_RATING_THRESHOLD])
         self.perfect_blocks: List[Dict[str, Any]] = []  # Track blocks that reach a perfect score
         self.legends_blocks: List[Dict[str, Any]] = []  # Track blocks in the legends tournament
-        self.category_stats: Dict[str, Any] = {}  # Track category refinement statistics
+        self.category_stats: Dict[str, Dict[str, Any]] = {}  # Track category refinement statistics
         
         # Initialize legends blocks
         for block in self.content_blocks:
@@ -94,132 +105,94 @@ class ContentProcessor:
                 self.legends_blocks.append(block)
     
     def _save_ratings(self) -> bool:
-        """Save the current ratings to the content file.
+        """Save the current ratings to the content database.
         
         Updates the ratings for all content blocks in the data manager.
+        This method is called automatically after rating operations to
+        ensure data persistence.
         
         Returns:
-            bool: True if successful, False otherwise.
+            bool: True if the save operation was successful, False otherwise.
+            
+        Raises:
+            OSError: May be raised if there are file system issues (handled internally)
         """
         try:
-            # Get the data manager
-            from src.core.data_manager import DataManager
-            data_manager = DataManager()
-            
-            # For test compatibility, check if update_ratings method exists and use it
-            if hasattr(data_manager, 'update_ratings') and callable(getattr(data_manager, 'update_ratings')):
-                result = data_manager.update_ratings(self.content_blocks)
-                if not result:
-                    print("Error saving ratings: DataManager.update_ratings returned False")
-                    return False
+            # Check if there are any changes to save
+            if not self.data_manager.update_ratings(self.content_blocks):
+                print("No changes to ratings detected.")
                 return True
-            
-            # Track changes
-            changes_made = False
-            
-            # Update ratings for each block
-            for block in self.content_blocks:
-                block_id = block.get("id")
-                text = block.get("text", "")
                 
-                if not (block_id or text):
-                    continue
-                
-                # Find the block in the data manager
-                found = False
-                
-                # First try to find by ID if available
-                if block_id:
-                    stored_block = data_manager.get_block_by_id(block_id)
-                    if stored_block:
-                        # Update the stored block
-                        if stored_block.get("rating") != block.get("rating"):
-                            stored_block["rating"] = block.get("rating", 0)
-                            stored_block["batch_rating"] = block.get("batch_rating", False)
-                            changes_made = True
-                        found = True
-                
-                # If not found by ID, try to find by text
-                if not found and text:
-                    for filename, file_data in data_manager.data.items():
-                        if not isinstance(file_data, dict) or "content" not in file_data:
-                            continue
-                            
-                        for paragraph in file_data.get("content", {}).get("paragraphs", []):
-                            for sentence in paragraph.get("sentences", []):
-                                if sentence.get("text") == text:
-                                    # Update the stored block
-                                    if sentence.get("rating") != block.get("rating"):
-                                        sentence["rating"] = block.get("rating", 0)
-                                        sentence["batch_rating"] = block.get("batch_rating", False)
-                                        changes_made = True
-                                    
-                                    # If the block has an ID but the stored one doesn't, add it
-                                    if block_id and not sentence.get("id"):
-                                        sentence["id"] = block_id
-                                        changes_made = True
-                                        
-                                    found = True
-                                    break
-                            if found:
-                                break
-                        if found:
-                            break
-            
-            # Save if changes were made
-            if changes_made:
-                return data_manager.save_data()
-            
-            # No changes detected
-            print("No changes to ratings detected.")
-            return True
-            
-        except (IOError, PermissionError) as e:
-            print(f"Error saving ratings - Permission or IO error: {e}")
-            traceback.print_exc()
-            return False
-        except OSError as e:
-            print(f"Error saving ratings - OS error (possibly disk space): {e}")
-            traceback.print_exc()
-            return False
+            # Save the updated data
+            result = self.data_manager.save_data()
+            if result:
+                print("Ratings saved successfully.")
+            else:
+                print("Error: Failed to save ratings.")
+            return result
         except Exception as e:
-            print(f"Error saving ratings: {e}")
-            traceback.print_exc()
+            print(f"Error saving ratings: {str(e)}")
             return False
 
     def _get_unrated_blocks(self) -> List[Dict[str, Any]]:
-        """Get all content blocks that haven't been rated yet.
+        """Get all unrated content blocks.
+        
+        Retrieves content blocks that have not yet been rated (rating = 0).
         
         Returns:
-            List of content block dictionaries.
+            List[Dict[str, Any]]: A list of unrated content blocks.
         """
-        unrated = []
+        return [block for block in self.content_blocks if block.get("rating", 0) == 0]
+    
+    def _get_rated_blocks(self) -> List[Dict[str, Any]]:
+        """Get all rated content blocks.
         
-        for block in self.content_blocks:
-            # If block has no rating or rating is 0, it's unrated
-            if block.get("rating", 0) == 0:
-                unrated.append(block)
+        Retrieves content blocks that have been assigned a non-zero rating.
         
-        return unrated
+        Returns:
+            List[Dict[str, Any]]: A list of rated content blocks with non-zero ratings.
+        """
+        return [block for block in self.content_blocks if block.get("rating", 0) > 0]
+    
+    def _get_blocks_by_rating_range(self, min_rating: float = 0.0, max_rating: float = 10.0) -> List[Dict[str, Any]]:
+        """Get content blocks within a specific rating range.
+        
+        This method efficiently filters content blocks based on their rating values,
+        allowing for more specific targeting of blocks for different operations.
+        
+        Args:
+            min_rating: The minimum rating value (inclusive), defaults to 0.0
+            max_rating: The maximum rating value (inclusive), defaults to 10.0
+            
+        Returns:
+            List[Dict[str, Any]]: Content blocks with ratings in the specified range
+        """
+        return [
+            block for block in self.content_blocks 
+            if min_rating <= block.get("rating", 0) <= max_rating
+        ]
     
     def _get_blocks_for_batch(self, batch_size: int) -> List[Dict[str, Any]]:
         """Get a batch of content blocks for rating.
         
+        Retrieves a batch of unrated content blocks for the batch rating process.
+        If there are fewer unrated blocks than the batch size, returns all available blocks.
+        
         Args:
-            batch_size: Number of blocks to include in the batch
+            batch_size: The number of content blocks to include in the batch
             
         Returns:
-            List of content block dictionaries.
+            List[Dict[str, Any]]: A list of unrated content blocks up to the batch size
         """
         # Get all unrated blocks
         unrated_blocks = self._get_unrated_blocks()
         
-        # If we have fewer blocks than the batch size, return all of them
+        # Return all unrated blocks if fewer than batch size
         if len(unrated_blocks) <= batch_size:
             return unrated_blocks
-        
-        # Otherwise, return a random batch
-        return random.sample(unrated_blocks, batch_size)
+            
+        # Otherwise, return a batch of the specified size
+        return unrated_blocks[:batch_size]
     
     def _show_stats(self) -> None:
         """Show statistics about the current state of the ratings."""
@@ -672,599 +645,207 @@ class ContentProcessor:
         sorted_hashes = sorted([hash1, hash2])
         return f"{sorted_hashes[0]}:{sorted_hashes[1]}"
 
-    def _run_tournament_mode(self) -> None:
+    def _run_tournament_mode(self) -> bool:
+        """Run the tournament mode for comparing and refining content blocks.
+        
+        Tournament mode presents pairs of content blocks for side-by-side comparison,
+        allowing for more precise relative rating adjustments. Winners receive a rating
+        boost while losers have their ratings slightly reduced.
+        
+        Returns:
+            bool: True if at least one tournament round was completed, False otherwise
+            
+        Note:
+            This method handles user interaction via the console and automatically
+            saves ratings after each tournament round.
         """
-        Run the tournament mode to compare content blocks within categories.
-        
-        This method implements a category-based tournament system that:
-        1. Organizes content blocks into topic-based categories
-        2. Allows for head-to-head comparisons within each category
-        3. Tracks completion and refinement status for each category
-        4. Adjusts ratings based on comparison outcomes
-        5. Provides detailed statistics and progress tracking
-        
-        The tournament mode helps identify the strongest content in each 
-        category and refine ratings through direct comparisons.
-        """
-        print("\nRegular Tournament Mode - Compare content blocks by category")
-        print("=" * 70)
-        
-        # Get categories from content blocks
-        categories = self._get_categories_from_blocks()
-        category_stats = categories.get("stats", {})
-        regular_categories = categories.get("regular", {})
-        
-        if not regular_categories:
-            print("No categories with regular-rated content blocks found.")
-            print("Try rating more content blocks first to reach tournament status.")
-            return
-        
-        # Sort categories by number of blocks (most first)
-        sorted_categories = sorted(
-            [(category, blocks) for category, blocks in regular_categories.items() if len(blocks) >= 2],
-            key=lambda x: len(x[1]),
-            reverse=True
+        # Get blocks with ratings in the tournament range
+        tournament_blocks = self._get_blocks_by_rating_range(
+            min_rating=TOURNAMENT_MIN_RATING, 
+            max_rating=TOURNAMENT_MAX_RATING
         )
         
-        if not sorted_categories:
-            print("No categories with enough blocks for tournament found.")
-            return
+        # Filter out blocks with too few ratings
+        tournament_blocks = [b for b in tournament_blocks if b.get("rating", 0) >= TOURNAMENT_MIN_RATING]
         
-        while True:
-            print(f"\nTournament Mode - Select a category to run a tournament:")
-            print(f"{'#':<4} {'Category':<25} {'Count':<7} {'Avg Rating':<12} {'Status'}")
-            print("-" * 70)
-            
-            for i, (category, blocks) in enumerate(sorted_categories, 1):
-                category_display = category[:22] + "..." if len(category) > 25 else category
-                avg_rating = sum(b.get("rating", 0) for b in blocks) / len(blocks)
-                
-                # Get status from category stats
-                status = ""
-                if category in category_stats:
-                    is_refined = category_stats[category].get("is_refined", False)
-                    is_complete = category_stats[category].get("is_complete", False)
-                    
-                    if is_refined and is_complete:
-                        status = "✅ Done"
-                    elif is_refined:
-                        status = "🟨 Refined"
-                    elif is_complete:
-                        status = "🟦 Complete"
-                    else:
-                        status = "🟥 In progress"
-                
-                print(f"{i:<4} {category_display:<25} {len(blocks):<7} {avg_rating:.1f}/10{' ':<6} {status}")
-            
-            # Let user select a category
-            try:
-                category_input = input("\nSelect category number, 's' for status overview, 'l' for legends tournament, or 'q' to quit: ").strip().lower()
-                
-                if category_input == 'q':
-                    # Show comprehensive status before exiting
-                    self._show_category_status()
-                    self._show_legends_blocks()
-                    return
-                elif category_input == 's':
-                    # Show comprehensive category status
-                    self._show_category_status()
-                    input("\nPress Enter to continue...")
-                    continue
-                elif category_input == 'l':
-                    # Switch to legends tournament
-                    print("Switching to legends tournament mode...")
-                    self._run_legends_tournament()
-                    return  # Exit regular tournament after legends tournament completes
-                
-                category_idx = int(category_input) - 1
-                
-                if 0 <= category_idx < len(sorted_categories):
-                    selected_category = sorted_categories[category_idx][0]
-                    result = self._run_category_tournament(selected_category, sorted_categories[category_idx][1])
-                    
-                    # If user quit from the tournament, exit completely
-                    if result == "quit":
-                        # Show comprehensive status before exiting
-                        self._show_category_status()
-                        return
-                    
-                    # If returning to menu, update categories
-                    if result == "menu":
-                        # Recalculate categories
-                        categories = self._get_categories_from_blocks()
-                        regular_categories = categories.get("regular", {})
-                        category_stats = categories.get("stats", {})
-                        
-                        # Resort categories
-                        sorted_categories = sorted(
-                            [(category, blocks) for category, blocks in regular_categories.items() if len(blocks) >= 2],
-                            key=lambda x: len(x[1]),
-                            reverse=True
-                        )
-                        
-                        if not sorted_categories:
-                            print("No more categories with enough blocks for tournament.")
-                            self._show_category_status()
-                            return
-                else:
-                    print("Invalid category number.")
-            except ValueError:
-                print("Please enter a valid number or command.")
-                
-    def _run_category_tournament(self, category: str, tournament_blocks: List[Dict[str, Any]]) -> str:
-        """Run a tournament for a specific category of content blocks.
-        
-        Presents the user with pairs of content blocks from the same category to compare.
-        Ratings are adjusted based on the outcome, with winners gaining points and losers
-        potentially losing points.
-        
-        Args:
-            category: The category name to run the tournament for.
-            tournament_blocks: List of content blocks in this category.
-            
-        Returns:
-            String command to signal the next action ('menu' to return to category menu)
-        """
-        # Create a copy of the tournament blocks for this category
-        category_blocks = tournament_blocks.copy()
-        
-        # Check if we have enough blocks for a tournament
-        if len(category_blocks) < 2:
-            print(f"Not enough content blocks in category '{category}' for a tournament.")
-            print(f"Need at least 2 blocks, but only found {len(category_blocks)}.")
-            input("Press Enter to continue...")
-            return "menu"  # Signal to return to category menu
-            
-        # Initialize tracking variables
-        compared_pairs: Set[str] = set()  # Track which pairs have been compared
-        rounds = 0
-        max_rounds = 10  # Limit the number of rounds to avoid an endless tournament
-        
-        # Get similarity-based pairs for this category
-        similarity_pairs = self._get_similar_content_pairs(category_blocks)
-        
-        # If no similar pairs found, fall back to random pairing
-        if not similarity_pairs:
-            print("No similar content pairs found. Using random pairing.")
-            # Main tournament loop with random pairing
-            while rounds < max_rounds:
-                rounds += 1
-                
-                # Shuffle the blocks to get random comparisons
-                random.shuffle(category_blocks)
-                
-                # Split into groups for comparison
-                groups = [category_blocks[i:i + TOURNAMENT_GROUP_SIZE] 
-                         for i in range(0, len(category_blocks), TOURNAMENT_GROUP_SIZE)]
-                
-                # Only keep groups with the right number of items
-                complete_groups = [g for g in groups if len(g) == TOURNAMENT_GROUP_SIZE]
-                
-                if not complete_groups:
-                    print("No more complete groups to compare.")
-                    break
-                    
-                # Choose a random group that hasn't been fully compared before
-                valid_groups = []
-                for group in complete_groups:
-                    # Check if all pairs in this group have already been compared
-                    all_compared = True
-                    for i in range(len(group)):
-                        for j in range(i + 1, len(group)):
-                            pair_id = self._get_pair_id(group[i], group[j])
-                            if pair_id not in compared_pairs:
-                                all_compared = False
-                                break
-                        if not all_compared:
-                            break
-                            
-                    if not all_compared:
-                        valid_groups.append(group)
-                        
-                if not valid_groups:
-                    print("\nAll possible pairs have been compared in this category.")
-                    print("Tournament complete!")
-                    break
-                    
-                # Choose a random group
-                chosen_group = random.choice(valid_groups)
-                
-                result = self._run_tournament_round(category, chosen_group, compared_pairs, rounds)
-                if result == "menu":
-                    return "menu"
-        else:
-            # Main tournament loop with similarity-based pairing
-            while rounds < max_rounds and similarity_pairs:
-                rounds += 1
-                
-                # Get the most similar pair that hasn't been compared yet
-                current_pair = None
-                for pair in similarity_pairs:
-                    pair_id = self._get_pair_id(pair[0], pair[1])
-                    if pair_id not in compared_pairs:
-                        current_pair = pair
-                        break
-                
-                if not current_pair:
-                    print("\nAll similar pairs have been compared in this category.")
-                    print("Tournament complete!")
-                    break
-                
-                # Extract the blocks and similarity
-                block1, block2, similarity = current_pair
-                
-                print(f"\n--- SIMILARITY TOURNAMENT - ROUND {rounds} - CATEGORY: {category.upper()} ---")
-                print(f"These content blocks are {similarity:.1%} similar. Compare them and choose the stronger one.")
-                print("Judge them on clarity, impact, and professionalism.\n")
-                
-                # Display the blocks
-                print(f"1. ID: {block1.get('id', 'N/A')} | Rating: {block1.get('rating', 0):.1f}")
-                print(f"   {block1['text']}")
-                print()
-                print(f"2. ID: {block2.get('id', 'N/A')} | Rating: {block2.get('rating', 0):.1f}")
-                print(f"   {block2['text']}")
-                print()
-                
-                # Show differences if similarity is high
-                if similarity > 0.8:
-                    from src.utils.diff_utils import print_text_differences
-                    print("\nDetailed differences (red = unique to #1, green = unique to #2):")
-                    print_text_differences(block1['text'], block2['text'])
-                    print()
-                
-                # Ask for user input
-                while True:
-                    try:
-                        choice = input("\nEnter the number of the strongest block (or 'q' to quit): ").strip()
-                        
-                        if choice.lower() == 'q':
-                            return "menu"  # Signal to return to category menu
-                            
-                        choice_idx = int(choice) - 1
-                        
-                        if choice_idx < 0 or choice_idx >= 2:
-                            print("Please enter 1 or 2.")
-                            continue
-                        
-                        # Get the winning and losing blocks
-                        winner = [block1, block2][choice_idx]
-                        loser = [block1, block2][1 - choice_idx]
-                        
-                        # Calculate updated ratings
-                        winner_old_rating = winner.get("rating", 0)
-                        winner_new_rating = min(winner_old_rating + TOURNAMENT_WIN_RATING_CHANGE, TOURNAMENT_MAX_RATING)
-                        
-                        loser_old_rating = loser.get("rating", 0)
-                        loser_new_rating = max(loser_old_rating - TOURNAMENT_LOSE_RATING_CHANGE, 0)
-                        
-                        # Update winner
-                        print(f"\nBlock {choice_idx+1} rating increased: {winner_old_rating:.1f} -> {winner_new_rating:.1f}")
-                        
-                        # Update in content_blocks
-                        for content_block in self.content_blocks:
-                            if content_block.get("id") == winner.get("id") or content_block.get("text") == winner.get("text"):
-                                content_block["rating"] = winner_new_rating
-                                
-                                # Check if this block now qualifies for legends tournament
-                                if winner_new_rating >= LEGENDS_MIN_RATING and content_block not in self.legends_blocks:
-                                    self.legends_blocks.append(content_block)
-                                    print(f"\n🎖️ CONGRATULATIONS! Block has reached LEGEND status! 🎖️")
-                                    print("This content is now eligible for the legends tournament.")
-                        
-                        # Update loser
-                        if loser_old_rating != loser_new_rating:
-                            print(f"Block {2-choice_idx} rating decreased: {loser_old_rating:.1f} -> {loser_new_rating:.1f}")
-                            
-                            # Update in content_blocks
-                            for content_block in self.content_blocks:
-                                if content_block.get("id") == loser.get("id") or content_block.get("text") == loser.get("text"):
-                                    content_block["rating"] = loser_new_rating
-                                    
-                                    # Check if this block should be removed from legends
-                                    if loser_new_rating < LEGENDS_MIN_RATING and content_block in self.legends_blocks:
-                                        self.legends_blocks.remove(content_block)
-                        
-                        # Update the compared pairs set
-                        pair_id = self._get_pair_id(block1, block2)
-                        compared_pairs.add(pair_id)
-                        
-                        # Save the updated ratings
-                        self._save_ratings()
-                        
-                        # Ask if the user wants to continue
-                        cont = input("\nContinue with another round? (y/n): ").strip().lower()
-                        if cont != 'y':
-                            return "menu"  # Signal to return to category menu
-                            
-                        break  # Break the input loop and continue with the tournament
-                        
-                    except ValueError:
-                        print("Please enter a valid number or 'q'.")
-        
-        print("\nTournament complete! All blocks have been compared.")
-        input("Press Enter to continue...")
-        return "menu"  # Signal to return to category menu
-        
-    def _get_similar_content_pairs(self, category_blocks: List[Dict[str, Any]], 
-                                  similarity_threshold: float = 0.7) -> List[Tuple[Dict[str, Any], Dict[str, Any], float]]:
-        """Get pairs of content blocks sorted by similarity.
-        
-        Args:
-            category_blocks: List of content blocks in a category
-            similarity_threshold: Minimum similarity threshold (0.0-1.0)
-            
-        Returns:
-            List of tuples (block1, block2, similarity_score) sorted by similarity (highest first)
-        """
-        from src.utils.spacy_utils import analyze_content_block_similarity
-        
-        # Get similarity map for all blocks
-        similarity_map = analyze_content_block_similarity(category_blocks)
-        
-        # Convert to pairs format
-        similarity_pairs = []
-        compared_pairs = set()
-        
-        for block1 in category_blocks:
-            text1 = block1.get("text", "")
-            if not text1 or text1 not in similarity_map:
-                continue
-                
-            # Get similar blocks for this block
-            similar_blocks = similarity_map[text1]
-            
-            for similar_block_info in similar_blocks:
-                similarity = similar_block_info.get("similarity", 0)
-                text2 = similar_block_info.get("text", "")
-                
-                # Skip if below threshold
-                if similarity < similarity_threshold:
-                    continue
-                    
-                # Find the actual block object for text2
-                block2 = None
-                for b in category_blocks:
-                    if b.get("text", "") == text2:
-                        block2 = b
-                        break
-                
-                if not block2:
-                    continue
-                    
-                # Skip if we've already compared this pair
-                pair_id = self._get_pair_id(block1, block2)
-                if pair_id in compared_pairs:
-                    continue
-                    
-                # Add to pairs
-                similarity_pairs.append((block1, block2, similarity))
-                compared_pairs.add(pair_id)
-        
-        # Sort by similarity (highest first)
-        return sorted(similarity_pairs, key=lambda x: x[2], reverse=True)
-
-    def _run_tournament_round(self, category: str, chosen_group: List[Dict[str, Any]], 
-                             compared_pairs: Set[str], rounds: int) -> str:
-        """Run a single round of the tournament with the chosen group.
-        
-        Args:
-            category: The category name
-            chosen_group: The group of blocks to compare
-            compared_pairs: Set of already compared pairs
-            rounds: Current round number
-            
-        Returns:
-            String command to signal the next action ('menu' to return to category menu)
-        """
-        print(f"\n--- TOURNAMENT - ROUND {rounds} - CATEGORY: {category.upper()} ---")
-        print("Compare these content blocks and choose the strongest one.")
-        print("Judge them on clarity, impact, and professionalism.\n")
-        
-        # Display the blocks
-        for i, block in enumerate(chosen_group, 1):
-            print(f"{i}. ID: {block.get('id', 'N/A')} | Rating: {block.get('rating', 0):.1f}")
-            print(f"   {block['text']}")
-            print()
-            
-        # Ask for user input
-        while True:
-            try:
-                choice = input("\nEnter the number of the strongest block (or 'q' to quit): ").strip()
-                
-                if choice.lower() == 'q':
-                    return "menu"  # Signal to return to category menu
-                    
-                choice_idx = int(choice) - 1
-                
-                if choice_idx < 0 or choice_idx >= len(chosen_group):
-                    print(f"Please enter a number between 1 and {len(chosen_group)}.")
-                    continue
-                    
-                # Get the winning block
-                winner = chosen_group[choice_idx]
-                
-                # Calculate updated ratings
-                winner_old_rating = winner.get("rating", 0)
-                winner_new_rating = min(winner_old_rating + TOURNAMENT_WIN_RATING_CHANGE, TOURNAMENT_MAX_RATING)
-                
-                # Update all blocks
-                for i, block in enumerate(chosen_group):
-                    if i == choice_idx:  # Winner
-                        print(f"\nBlock {i+1} rating increased: {winner_old_rating:.1f} -> {winner_new_rating:.1f}")
-                        
-                        # Update in content_blocks
-                        for content_block in self.content_blocks:
-                            if content_block.get("id") == block.get("id") or content_block.get("text") == block.get("text"):
-                                content_block["rating"] = winner_new_rating
-                                
-                                # Check if this block now qualifies for legends tournament
-                                if winner_new_rating >= LEGENDS_MIN_RATING and content_block not in self.legends_blocks:
-                                    self.legends_blocks.append(content_block)
-                                    print(f"\n🎖️ CONGRATULATIONS! Block has reached LEGEND status! 🎖️")
-                                    print("This content is now eligible for the legends tournament.")
-                    else:  # Losers
-                        old_rating = block.get("rating", 0)
-                        new_rating = max(old_rating - TOURNAMENT_LOSE_RATING_CHANGE, 0)
-                        
-                        if old_rating != new_rating:
-                            print(f"Block {i+1} rating decreased: {old_rating:.1f} -> {new_rating:.1f}")
-                            
-                            # Update in content_blocks
-                            for content_block in self.content_blocks:
-                                if content_block.get("id") == block.get("id") or content_block.get("text") == block.get("text"):
-                                    content_block["rating"] = new_rating
-                                    
-                                    # Check if this block should be removed from legends
-                                    if new_rating < LEGENDS_MIN_RATING and content_block in self.legends_blocks:
-                                        self.legends_blocks.remove(content_block)
-                
-                # Update the compared pairs set
-                for i in range(len(chosen_group)):
-                    for j in range(i + 1, len(chosen_group)):
-                        pair_id = self._get_pair_id(chosen_group[i], chosen_group[j])
-                        compared_pairs.add(pair_id)
-                        
-                # Save the updated ratings
-                self._save_ratings()
-                
-                # Ask if the user wants to continue
-                cont = input("\nContinue with another round? (y/n): ").strip().lower()
-                if cont != 'y':
-                    return "menu"  # Signal to return to category menu
-                    
-                break  # Break the input loop and continue with the tournament
-                
-            except ValueError:
-                print("Please enter a valid number or 'q'.")
-        
-        print("\nTournament complete! All blocks have been compared.")
-        input("Press Enter to continue...")
-        return "menu"  # Signal to return to category menu
-        
-    def _run_batch_rating(self, batch_size: int = 10) -> None:
-        """
-        Run the batch rating phase for initial content block evaluation.
-        
-        This method presents unrated content blocks in manageable batches, allowing
-        users to assign ratings on a 1-10 scale. It also supports editing blocks 
-        directly during the rating process, and tracks progress across batches.
-        
-        Rating scale interpretation:
-        - 1-2: Poor (will be filtered out)
-        - 3-5: Fair to Average
-        - 6-7: Good
-        - 8-10: Excellent
-        
-        Args:
-            batch_size: Number of blocks to include in each batch
-        """
-        # Get all unrated blocks
-        unrated_blocks = self._get_unrated_blocks()
-        
-        if not unrated_blocks:
-            print("\nNo new content blocks to rate.")
-            return
+        # If not enough blocks, show message and return
+        if len(tournament_blocks) < TOURNAMENT_GROUP_SIZE:
+            print(f"Not enough blocks with ratings >= {TOURNAMENT_MIN_RATING} for tournament mode.")
+            print(f"Need at least {TOURNAMENT_GROUP_SIZE} blocks, but only found {len(tournament_blocks)}.")
+            return False
         
         print("\n" + "=" * 70)
-        print("BATCH RATING PHASE - Give Initial Ratings to Content Blocks")
+        print("TOURNAMENT MODE - Compare Content Blocks Side by Side")
         print("=" * 70)
-        print("Please rate each content block on a scale of 1-10:")
-        print("1-2 = Poor (will be filtered out)")
-        print("3-5 = Fair to Average")
-        print("6-7 = Good")
-        print("8-10 = Excellent")
-        print("Or enter 'e' to edit the block before rating")
+        print(f"You'll be shown {TOURNAMENT_GROUP_SIZE} blocks at a time.")
+        print("Choose the best one to increase its rating.")
         
-        # Calculate number of batches
-        num_batches = math.ceil(len(unrated_blocks) / batch_size)
+        # Shuffle blocks to ensure random comparisons
+        random.shuffle(tournament_blocks)
         
-        # Create batches
+        # Track if any tournaments were completed
+        tournaments_completed = False
+        
+        # Process blocks in groups
+        for i in range(0, len(tournament_blocks), TOURNAMENT_GROUP_SIZE):
+            # Get the current group
+            group = tournament_blocks[i:i+TOURNAMENT_GROUP_SIZE]
+            
+            # If we don't have enough blocks for a full group, break
+            if len(group) < TOURNAMENT_GROUP_SIZE:
+                break
+                
+            print("\n" + "-" * 70)
+            print(f"ROUND {i//TOURNAMENT_GROUP_SIZE + 1}")
+            print("-" * 70)
+            
+            # Display blocks
+            for j, block in enumerate(group):
+                print(f"\n{j+1}. [{block.get('rating', 0):.1f}] {block.get('text', '')}")
+                if "tags" in block and block["tags"]:
+                    print(f"   Tags: {', '.join(block['tags'])}")
+            
+            # Get user choice
+            while True:
+                try:
+                    choice_input = input(f"\nWhich is best? (1-{len(group)}, 'e' to edit, 's' to skip): ").lower().strip()
+                    
+                    if choice_input == 's':
+                        print("Skipping this round.")
+                        break
+                    elif choice_input == 'e':
+                        # Handle editing
+                        edit_idx = int(input(f"Which block to edit? (1-{len(group)}): ")) - 1
+                        if 0 <= edit_idx < len(group):
+                            self._edit_block(group[edit_idx])
+                        else:
+                            print("Invalid block number.")
+                        continue
+                    
+                    choice = int(choice_input) - 1
+                    
+                    if 0 <= choice < len(group):
+                        # Update ratings
+                        winner = group[choice]
+                        
+                        # Increase winner's rating
+                        winner["rating"] = min(winner.get("rating", 0) + TOURNAMENT_WIN_RATING_CHANGE, TOURNAMENT_MAX_RATING)
+                        
+                        # Decrease other blocks' ratings
+                        for j, block in enumerate(group):
+                            if j != choice:
+                                block["rating"] = max(block.get("rating", 0) - TOURNAMENT_LOSE_RATING_CHANGE, TOURNAMENT_MIN_RATING)
+                        
+                        tournaments_completed = True
+                        print(f"Block {choice+1} selected as winner!")
+                        break
+                    else:
+                        print(f"Please enter a number between 1 and {len(group)}.")
+                except ValueError:
+                    print(f"Please enter a valid number, 'e' to edit, or 's' to skip.")
+            
+            # Save after each round
+            if tournaments_completed:
+                self._save_ratings()
+                
+            # Ask if user wants to continue
+            if i + TOURNAMENT_GROUP_SIZE < len(tournament_blocks):
+                continue_input = input("\nContinue to next round? (y/n): ")
+                if continue_input.lower() != "y":
+                    break
+        
+        if tournaments_completed:
+            print("\nTournament mode completed!")
+        
+        return tournaments_completed
+
+    def _run_batch_rating(self) -> bool:
+        """Run the batch rating process for unrated content blocks.
+        
+        Presents unrated content blocks in batches of BATCH_SIZE for rating.
+        Users can rate each block on a scale of 1-10 or skip blocks.
+        
+        Returns:
+            bool: True if at least one block was rated, False otherwise
+            
+        Note:
+            This method handles user interaction via the console and automatically
+            saves ratings after each batch is processed.
+        """
+        # Get unrated blocks
+        unrated_blocks = self._get_unrated_blocks()
+        
+        # Create batches of BATCH_SIZE
         batches = []
-        for i in range(0, len(unrated_blocks), batch_size):
-            batches.append(unrated_blocks[i:i+batch_size])
+        for i in range(0, len(unrated_blocks), BATCH_SIZE):
+            batches.append(unrated_blocks[i:i+BATCH_SIZE])
+        
+        # If no unrated blocks, show message and return
+        if not batches:
+            print("No unrated content blocks found.")
+            return False
+        
+        # Track if any blocks were rated
+        blocks_rated = False
         
         # Process each batch
         for batch_idx, batch in enumerate(batches):
-            print(f"\n{'=' * 70}")
-            print(f"BATCH {batch_idx + 1} OF {num_batches}")
-            print(f"{'=' * 70}")
+            print(f"\n===== Batch {batch_idx + 1}/{len(batches)} =====")
             
-            batch_ratings = []
-            
-            block_idx = 0
-            while block_idx < len(batch):
-                block = batch[block_idx]
-                print(f"\n{'-' * 70}")
-                print(f"{block_idx + 1}. {block['text']}")
+            # Process each block in the batch
+            for block_idx, block in enumerate(batch):
+                print(f"\n----- Block {block_idx + 1}/{len(batch)} -----")
+                print(f"Text: {block.get('text', 'No text available')}")
                 
+                # Show tags if available
+                if "tags" in block and block["tags"]:
+                    print(f"Tags: {', '.join(block['tags'])}")
+                
+                # Get rating from user
                 while True:
                     try:
-                        rating_input = input("Rating (1-10, 'e' to edit, 's' to skip, 'q' to quit): ").lower().strip()
+                        rating_input = input(f"\nRate this block (1-{BATCH_RATING_SCALE}, s to skip): ")
                         
-                        if rating_input == 'q':
-                            self._save_ratings()
-                            print("Rating process saved and exited.")
-                            return
-                        elif rating_input == 's':
-                            block_idx += 1
+                        # Skip this block
+                        if rating_input.lower() == "s":
+                            print("Skipping this block.")
                             break
-                        elif rating_input == 'e':
-                            # Handle editing
-                            edited_block = self._edit_block(block)
-                            if edited_block:
-                                # Mark original block as poor quality
-                                block["rating"] = 1.0
-                                block["last_rated"] = datetime.now().isoformat()
-                                block["batch_rating"] = True
-                                block["edited"] = True
-                                
-                                # Add the edited block to the data
-                                self._add_edited_block(edited_block)
-                                self._save_ratings()
-                                
-                                # Now rate the new block
-                                print(f"\nNew content block: {edited_block['text']}")
-                                # Continue with the normal flow but with the edited block
-                                # We'll stay at the same index but replace the block
-                                batch[block_idx] = edited_block
-                                break
-                            else:
-                                # If edit was canceled, continue with the original block
-                                continue
-                        
+                            
+                        # Edit this block
+                        elif rating_input.lower() == "e":
+                            self._edit_block(block)
+                            continue
+                            
+                        # Parse rating
                         rating = float(rating_input)
-                        if 1 <= rating <= 10:
+                        
+                        # Validate rating
+                        if 1 <= rating <= BATCH_RATING_SCALE:
                             block["rating"] = rating
-                            block["last_rated"] = datetime.now().isoformat()
                             block["batch_rating"] = True
-                            batch_ratings.append(rating)
-                            block_idx += 1
+                            blocks_rated = True
+                            print(f"Block rated: {rating}")
                             break
                         else:
-                            print("Please enter a number between 1 and 10.")
+                            print(f"Please enter a rating between 1 and {BATCH_RATING_SCALE}.")
                     except ValueError:
-                        print("Please enter a valid number, 'e' to edit, 's' to skip, or 'q' to quit.")
+                        print("Please enter a valid number or 's' to skip.")
             
             # Save after each batch
-            self._save_ratings()
-            
-            # Show batch summary
-            if batch_ratings:
-                avg_rating = sum(batch_ratings) / len(batch_ratings)
-                print(f"\n{'-' * 70}")
-                print(f"Batch {batch_idx + 1} complete!")
-                print(f"Average rating: {avg_rating:.1f}")
+            if blocks_rated:
+                self._save_ratings()
                 
-                if batch_idx < len(batches) - 1:
-                    input("Press Enter to continue to the next batch...")
+            # Ask if user wants to continue to next batch
+            if batch_idx < len(batches) - 1:
+                continue_input = input("\nContinue to next batch? (y/n): ")
+                if continue_input.lower() != "y":
+                    break
         
-        print("\nBatch rating phase completed!")
+        # Update statistics
+        self.rated_blocks = len([b for b in self.content_blocks if b.get("rating", 0) > 0])
+        self.high_rated_blocks = len([b for b in self.content_blocks if b.get("rating", 0) >= HIGH_RATING_THRESHOLD])
         
-        # Show top rated blocks
-        top_blocks = sorted(self.content_blocks, key=lambda b: b.get("rating", 0), reverse=True)[:5]
-        print("\nTOP RATED CONTENT BLOCKS:")
-        for i, block in enumerate(top_blocks, 1):
-            print(f"{i}. [{block.get('rating', 0):.1f}/10] {block['text']}")
+        return blocks_rated
 
     def _edit_block(self, block: Dict[str, Any]) -> Dict[str, Any]:
         """

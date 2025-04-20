@@ -58,14 +58,6 @@ def setup_argparse(parser: Optional[argparse.ArgumentParser] = None) -> argparse
     group.add_argument("--stats", action="store_true", 
                       help="Show detailed statistics about your content blocks and categories")
     
-    # Optional parameters
-    parser.add_argument("--batch-size", type=int, default=10, 
-                       help="Number of blocks to rate in each batch (default: 10)")
-    parser.add_argument("--category", type=str, 
-                       help="Specific category to refine in refinement mode")
-    parser.add_argument("--file", type=str, default=os.path.join(DATA_DIR, "json/cover_letter_content.json"), 
-                       help="Path to content JSON file (default: in external data directory)")
-    
     return parser
 
 def main(args: Optional[argparse.Namespace] = None) -> None:
@@ -90,8 +82,8 @@ def main(args: Optional[argparse.Namespace] = None) -> None:
         parser = setup_argparse()
         args = parser.parse_args()
     
-    # Initialize processor with specified file
-    processor = ContentProcessor(json_file=args.file)
+    # Initialize processor with default file
+    processor = ContentProcessor()
     
     # Show statistics if requested
     if args.stats:
@@ -136,13 +128,13 @@ def main(args: Optional[argparse.Namespace] = None) -> None:
     # Determine operation mode
     if args.batch:
         print("Running batch rating mode...")
-        processor._run_batch_rating(batch_size=args.batch_size)
+        processor._run_batch_rating()
     elif args.tournament:
         print("Running tournament mode...")
         processor._run_tournament_mode()
     elif args.refinement:
         print("Running category refinement mode...")
-        processor._run_category_refinement(category=args.category)
+        processor._run_category_refinement()
     elif args.legends:
         print("Running legends tournament mode...")
         processor._run_legends_tournament()
