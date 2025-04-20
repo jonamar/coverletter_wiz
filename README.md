@@ -214,6 +214,60 @@ This project follows [Semantic Versioning](https://semver.org/) (SemVer):
 
 You can find the current version in `src/__init__.py` and view the complete history of changes in the [CHANGELOG.md](./CHANGELOG.md).
 
+## Usage
+
+### Main Commands
+
+The application provides the following main commands:
+
+```bash
+# Process content from a text file
+python -m coverletter_wiz process path/to/file.txt
+
+# Rate content with various workflows
+python -m coverletter_wiz rate [batch|tournament]
+
+# Generate a job report and cover letter
+python -m coverletter_wiz report --job-id 123
+
+# Export content to text or markdown
+python -m coverletter_wiz export [text|markdown]
+```
+
+### Configuration
+
+The report command can be configured using a JSON configuration file:
+
+```bash
+# Generate a report with custom configuration
+python -m coverletter_wiz report --job-id 123 --config path/to/config.json
+```
+
+Example configuration file (config.json):
+```json
+{
+  "min_rating": 6.0,
+  "content_weight": 0.7,
+  "weights": [3, 2, 1, 0.1],
+  "similarity_threshold": 0.8,
+  "include_cover_letter": true,
+  "use_semantic_dedup": true
+}
+```
+
+### Additional Options
+
+```bash
+# Add extra tags to prioritize in matching
+python -m coverletter_wiz report --job-id 123 --tags python django
+
+# Show preprocessed job text in the report
+python -m coverletter_wiz report --job-id 123 --show-preprocessed
+
+# Use a different LLM model
+python -m coverletter_wiz report --job-id 123 --llm-model llama3
+```
+
 ## Setup
 
 1. Clone the main application repository:
@@ -246,75 +300,6 @@ You can find the current version in `src/__init__.py` and view the complete hist
    ```
 
 6. Install Ollama and ensure it's running (for LLM functionality)
-
-## CLI Usage
-
-The Cover Letter Wizard provides a command-line interface for all its functionality. The main commands are:
-
-### Process Text
-
-Process raw text files into content blocks:
-
-```bash
-python -m coverletter_wiz process --file path/to/text_file.txt
-```
-
-Options:
-- `--file`: Path to the text file to process
-- `--directory`: Process all text files in a directory
-- `--min-length`: Minimum length for content blocks (default: 100)
-- `--max-length`: Maximum length for content blocks (default: 500)
-
-### Rate Content
-
-Rate content blocks to identify your best material:
-
-```bash
-python -m coverletter_wiz rate --batch
-```
-
-Options:
-- `--batch`: Rate content blocks in batch mode
-- `--tournament`: Rate content blocks in tournament mode
-- `--category`: Focus on a specific category
-- `--min-rating`: Only show content above this rating (default: 0)
-
-### Generate Report
-
-Generate reports and cover letters for job applications, with integrated job analysis:
-
-```bash
-python -m coverletter_wiz report --job-id 123
-```
-
-or analyze a new job from a URL:
-
-```bash
-python -m coverletter_wiz report --job-url "https://example.com/job-posting"
-```
-
-Options:
-- `--job-id`: ID of the job to analyze
-- `--job-url`: URL of the job to analyze (alternative to --job-id)
-- `--no-cover-letter`: Skip cover letter generation
-- `--llm-model`: LLM model to use (default: gemma3:12b)
-- `--tags`: Additional keywords/tags to prioritize in matching
-- `--min-rating`: Minimum rating threshold for content (default: 7.0)
-- `--weights`: Comma-separated weights for high,medium,low priorities and multi-tag bonus (default: 3,2,1,0.1)
-- `--list`: List all available jobs with their IDs
-
-### Export Content
-
-Export your best content for use in cover letters:
-
-```bash
-python -m coverletter_wiz export --min-rating 8.0
-```
-
-Options:
-- `--min-rating`: Minimum rating threshold for export (default: 7.0)
-- `--format`: Export format (markdown or json, default: markdown)
-- `--output`: Output file path
 
 ## Development
 

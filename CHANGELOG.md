@@ -10,6 +10,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Future changes will be listed here before release
 
+## [0.7.0] - 2025-04-19
+
+### Changed
+- Significantly simplified the CLI interface and underlying codebase
+- Consolidated configuration parameters into a single `--config` parameter that accepts a JSON file
+- Enhanced parameter handling with better defaults and cleaner code structure
+
+### Removed
+- Removed `--job-url` parameter and related fetch functionality
+- Removed `--no-cover-letter` parameter in favor of config-based approach
+- Removed `--jobs-file` and `--content-file` parameters to enforce standard data locations
+- Removed `--semantic-dedup`, `--no-semantic-dedup`, and `--similarity-threshold` flags
+- Removed `--min-rating`, `--content-weight`, and `--weights` flags in favor of config approach
+- Removed direct CLI argument for `--list` in favor of a cleaner interface
+
 ## [0.6.0] - 2025-04-19
 
 ### Removed
@@ -339,7 +354,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moved data storage to external directory for privacy
 - Updated data paths to reference external data location
 
-[Unreleased]: https://github.com/jonamar/coverletter_wiz/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/jonamar/coverletter_wiz/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/jonamar/coverletter_wiz/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/jonamar/coverletter_wiz/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/jonamar/coverletter_wiz/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/jonamar/coverletter_wiz/compare/v0.5.0...v0.5.1

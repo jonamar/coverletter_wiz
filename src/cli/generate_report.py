@@ -252,19 +252,11 @@ SUMMARY: [One sentence summary]
     return job_title, org_name, summary, processed_text, prioritized_tags
 
 def generate_report(job_id: Optional[str] = None, 
-                   job_url: Optional[str] = None, 
-                   include_cover_letter: bool = True, 
                    llm_model: str = DEFAULT_LLM_MODEL,
                    keywords: Optional[List[str]] = None,
                    save_keywords: bool = False,
-                   min_rating: float = MIN_RATING_THRESHOLD,
-                   content_weight: float = DEFAULT_CONTENT_WEIGHT,
-                   jobs_file: str = DEFAULT_JOBS_FILE,
-                   content_file: str = DEFAULT_CONTENT_FILE,
                    show_preprocessed_text: bool = False,
-                   use_semantic_dedup: bool = True,
-                   similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
-                   weights: Optional[str] = None) -> Optional[str]:
+                   config: Optional[Dict[str, Any]] = None) -> Optional[str]:
     """Generates a comprehensive job match report for a specified job.
     
     This function creates a detailed report that includes job requirements (tags),
@@ -273,99 +265,71 @@ def generate_report(job_id: Optional[str] = None,
     
     Args:
         job_id: ID of the job to analyze.
-        job_url: URL of the job to analyze (alternative to job_id).
-        include_cover_letter: Whether to include a cover letter draft.
         llm_model: LLM model to use for cover letter generation.
         keywords: Additional keywords/tags to prioritize in matching.
         save_keywords: Whether to save provided keywords to categories.yaml.
-        min_rating: Minimum rating threshold for content.
-        content_weight: Weight to give content rating vs tag matching.
-        jobs_file: Path to jobs JSON file.
-        content_file: Path to content JSON file.
         show_preprocessed_text: Whether to include preprocessed job text in the report.
-        use_semantic_dedup: Whether to use semantic similarity for deduplication.
-        similarity_threshold: Similarity threshold for semantic deduplication.
-        weights: Comma-separated weights for high,medium,low priorities and multi-tag bonus.
+        config: Dictionary containing configuration parameters:
+            - min_rating: Minimum rating threshold for content (default: 6.0)
+            - content_weight: Weight to give content rating vs tag matching (default: 0.7)
+            - weights: List of weights for high, medium, low priorities and multi-tag bonus (default: [3, 2, 1, 0.1])
+            - similarity_threshold: Similarity threshold for semantic deduplication (default: 0.8)
+            - include_cover_letter: Whether to include a cover letter draft (default: True)
+            - use_semantic_dedup: Whether to use semantic similarity for deduplication (default: True)
         
     Returns:
         Path to the generated report file if successful, None if an error occurred.
     """
     try:
-        # Parse custom weights if provided
-        high_weight = 3
-        medium_weight = 2
-        low_weight = 1
-        multi_tag_bonus = 0.1
+        # Set default configuration
+        if config is None:
+            config = {}
         
-        if weights:
-            try:
-                weight_values = [float(w) for w in weights.split(',')]
-                if len(weight_values) == 4:
-                    high_weight, medium_weight, low_weight, multi_tag_bonus = weight_values
-                    print(f"Using custom weights: high={high_weight}, medium={medium_weight}, low={low_weight}, bonus={multi_tag_bonus}")
-                else:
-                    print(f"Warning: --weights must have exactly 4 values. Using defaults.")
-            except ValueError:
-                print(f"Warning: Invalid weight values in '{weights}'. Using defaults.")
+        # Extract configuration parameters with defaults
+        min_rating = config.get("min_rating", MIN_RATING_THRESHOLD)
+        content_weight = config.get("content_weight", DEFAULT_CONTENT_WEIGHT)
+        similarity_threshold = config.get("similarity_threshold", DEFAULT_SIMILARITY_THRESHOLD)
+        include_cover_letter = config.get("include_cover_letter", True)
+        use_semantic_dedup = config.get("use_semantic_dedup", True)
+        
+        # Parse custom weights if provided
+        weights_list = config.get("weights", [3, 2, 1, 0.1])
+        if isinstance(weights_list, list) and len(weights_list) >= 4:
+            high_weight = weights_list[0]
+            medium_weight = weights_list[1]
+            low_weight = weights_list[2]
+            multi_tag_bonus = weights_list[3]
+        else:
+            high_weight = 3
+            medium_weight = 2
+            low_weight = 1
+            multi_tag_bonus = 0.1
         
         # Create jobs directory if it doesn't exist
-        jobs_dir = os.path.dirname(jobs_file)
+        jobs_dir = os.path.dirname(DEFAULT_JOBS_FILE)
         os.makedirs(jobs_dir, exist_ok=True)
         
         # Initialize jobs data if file doesn't exist
-        if not os.path.exists(jobs_file):
-            print(f"Notice: Jobs file {jobs_file} does not exist. Creating new file.")
+        if not os.path.exists(DEFAULT_JOBS_FILE):
+            print(f"Notice: Jobs file {DEFAULT_JOBS_FILE} does not exist. Creating new file.")
             jobs_data = {"jobs": []}
-            with open(jobs_file, 'w') as f:
+            with open(DEFAULT_JOBS_FILE, 'w') as f:
                 json.dump(jobs_data, f)
         else:
             # Load job data
-            with open(jobs_file, 'r') as f:
+            with open(DEFAULT_JOBS_FILE, 'r') as f:
                 jobs_data = json.load(f)
         
-        # Find the job by ID or URL
+        # Find the job by ID
         job = None
-        
-        if job_id:
-            # Add debug info
-            print(f"Looking for job with ID: {job_id} (type: {type(job_id)})")
-            print(f"Available job IDs: {[j.get('id') for j in jobs_data.get('jobs', [])]}")
-            
-            # Try to convert job_id to int if it's a string of digits
-            job_id_int = None
-            if isinstance(job_id, str) and job_id.isdigit():
-                job_id_int = int(job_id)
-                print(f"Converted job_id to int: {job_id_int}")
-            
-            for j in jobs_data.get("jobs", []):
-                j_id = j.get("id")
-                print(f"Checking job: {j_id} (type: {type(j_id)}) - {j.get('job_title')}")
-                
-                # Check for match with original job_id or converted int version
-                if j_id == job_id or (job_id_int is not None and j_id == job_id_int):
-                    job = j
-                    break
-        elif job_url:
-            # First try to find the job in existing data
-            for j in jobs_data.get("jobs", []):
-                if j.get("url") == job_url:
-                    job = j
-                    break
-            
-            # If job not found in database but URL provided, fetch and analyze it
-            if not job:
-                print(f"Job with URL {job_url} not found in database. Fetching and analyzing...")
-                job = fetch_and_analyze_job(job_url, llm_model)
-                
-                # Save the job to the database if successfully analyzed
-                if job:
-                    print("Adding newly analyzed job to database")
-                    jobs_data.setdefault("jobs", []).append(job)
-                    with open(jobs_file, 'w') as f:
-                        json.dump(jobs_data, f, indent=2)
+        for j in jobs_data.get("jobs", []):
+            j_id = j.get("id")
+            if j_id == job_id:
+                job = j
+                break
         
         if not job:
-            print("Job not found. Please provide a valid job ID or URL.")
+            print("Job not found. Please provide a valid job ID.")
             return None
         
         # Extract job information
@@ -419,7 +383,7 @@ def generate_report(job_id: Optional[str] = None,
                 job_tags = prioritize_tags_for_job(job_text, categories)
         
         # Find content blocks from cover letter content data
-        with open(content_file, 'r') as f:
+        with open(DEFAULT_CONTENT_FILE, 'r') as f:
             content_data = json.load(f)
         
         # Extract content blocks with ratings
@@ -1152,11 +1116,6 @@ def setup_argparse(parser: Optional[argparse.ArgumentParser] = None) -> argparse
     
     parser.add_argument("--job-id", dest="job_id", type=str,
                        help="ID of the job to analyze")
-    parser.add_argument("--job-url", dest="job_url", type=str,
-                       help="URL of the job to analyze (alternative to --job-id)")
-    parser.add_argument("--no-cover-letter", dest="include_cover_letter", 
-                       action="store_false", default=True,
-                       help="Skip cover letter generation")
     parser.add_argument("--llm-model", dest="llm_model", type=str,
                        default=DEFAULT_LLM_MODEL,
                        help=f"LLM model to use for cover letter generation (default: {DEFAULT_LLM_MODEL})")
@@ -1164,34 +1123,11 @@ def setup_argparse(parser: Optional[argparse.ArgumentParser] = None) -> argparse
                        help="Additional keywords/tags to prioritize in matching")
     parser.add_argument("--save-keywords", dest="save_keywords", action="store_true",
                        help="Save provided keywords to categories.yaml")
-    parser.add_argument("--min-rating", dest="min_rating", type=float,
-                       default=MIN_RATING_THRESHOLD,
-                       help=f"Minimum rating threshold for content (default: {MIN_RATING_THRESHOLD})")
-    parser.add_argument("--content-weight", dest="content_weight", type=float,
-                       default=DEFAULT_CONTENT_WEIGHT,
-                       help=f"Weight to give content rating vs tag matching (default: {DEFAULT_CONTENT_WEIGHT})")
-    parser.add_argument("--weights", dest="weights", type=str,
-                       help="Comma-separated weights for high,medium,low priorities and multi-tag bonus (default: 3,2,1,0.1)")
-    parser.add_argument("--jobs-file", dest="jobs_file", type=str,
-                       default=DEFAULT_JOBS_FILE,
-                       help="Path to jobs JSON file")
-    parser.add_argument("--content-file", dest="content_file", type=str,
-                       default=DEFAULT_CONTENT_FILE,
-                       help="Path to content JSON file")
     parser.add_argument("--show-preprocessed", dest="show_preprocessed_text",
                        action="store_true",
                        help="Include preprocessed job text in the report")
-    parser.add_argument("--semantic-dedup", dest="use_semantic_dedup",
-                       action="store_true", default=True,
-                       help="Use semantic similarity for deduplication")
-    parser.add_argument("--no-semantic-dedup", dest="use_semantic_dedup",
-                       action="store_false",
-                       help="Disable semantic similarity for deduplication")
-    parser.add_argument("--similarity-threshold", dest="similarity_threshold",
-                       type=float, default=DEFAULT_SIMILARITY_THRESHOLD,
-                       help=f"Similarity threshold for semantic deduplication (default: {DEFAULT_SIMILARITY_THRESHOLD})")
-    parser.add_argument("--list", dest="list_jobs", action="store_true",
-                       help="List all available jobs with their IDs")
+    parser.add_argument("--config", dest="config", type=str,
+                       help="Path to a JSON configuration file")
     
     return parser
 
@@ -1213,39 +1149,25 @@ def main(args: Optional[argparse.Namespace] = None) -> None:
         parser = setup_argparse()
         args = parser.parse_args()
     
-    if args.list_jobs:
-        with open(DEFAULT_JOBS_FILE, 'r') as f:
-            jobs_data = json.load(f)
-        
-        print("Available Jobs:")
-        for job in jobs_data.get("jobs", []):
-            job_id = job.get("id", "Unknown")
-            job_title = job.get("job_title", "Unknown Job")
-            print(f"- {job_id}: {job_title}")
-        
-        return
-    
-    if not args.job_id and not args.job_url:
-        print("Error: Either --job-id or --job-url must be specified")
+    if not args.job_id:
+        print("Error: --job-id must be specified")
         sys.exit(1)
     
     try:
+        # Load configuration from file if provided
+        config = {}
+        if args.config:
+            with open(args.config, 'r') as f:
+                config = json.load(f)
+        
         # Generate report
         report_file = generate_report(
             job_id=args.job_id,
-            job_url=args.job_url,
-            include_cover_letter=args.include_cover_letter,
             llm_model=args.llm_model,
             keywords=args.keywords,
             save_keywords=args.save_keywords,
-            min_rating=args.min_rating,
-            content_weight=args.content_weight,
-            jobs_file=args.jobs_file,
-            content_file=args.content_file,
             show_preprocessed_text=args.show_preprocessed_text,
-            use_semantic_dedup=args.use_semantic_dedup,
-            similarity_threshold=args.similarity_threshold,
-            weights=args.weights
+            config=config
         )
         
         if report_file:
